@@ -1,0 +1,9 @@
+{
+  "name": "fontana-coreografia",
+  "version": "1.0.0",
+  "description": "Server Netlify per generare coreografie della Fontana Danzante",
+  "scripts": {},
+  "engines": {
+    "node": ">=18"
+  }
+}
