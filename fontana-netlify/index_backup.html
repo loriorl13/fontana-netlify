@@ -40,14 +40,14 @@ window.fetch = function(...args) {
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       ));
     }
-    if (path.startsWith('/wind') || path.startsWith('/get-wind') || path.startsWith('/weather')) {
+    if (path.startsWith('/wind') || path.startsWith('/get-wind')) {
       return Promise.resolve(new Response(
-        JSON.stringify({ speed: 0, threshold: 30, blocked: false, condition: 'Clear', temp: 25 }),
+        JSON.stringify({ speed: 0, threshold: 30, blocked: false }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       ));
     }
     if (path.length > 1) {
-      return Promise.resolve(new Response(JSON.stringify({ status: 'OK' }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      return Promise.resolve(new Response('OK', { status: 200 }));
     }
   }
 
@@ -75,21 +75,9 @@ window.fetch = function(...args) {
 <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/loriorl13/fontana-audio/main/apple-touch-icon.png">
 
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Fontana ESP32</title>
   <style>
-    /* Ottimizzazione Mobile iOS globale */
-    * {
-      box-sizing: border-box;
-      -webkit-tap-highlight-color: transparent;
-    }
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 100vw;
-      overflow-x: hidden;
-      overscroll-behavior-y: none;
-    }
     /* Bottone Stop Emergenza - solo emoji grande, senza sfondo/bollino */
     #emergencyStopBtn {
       position: fixed;
@@ -2788,47 +2776,8 @@ window.fetch = function(...args) {
       gap: 12px;
       padding-bottom: 30px;
     }
-  </style>
+</style>
 
-  <!-- Firebase SDK -->
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-  <script>
-    const firebaseConfig = {
-      apiKey: "AIzaSyB_-O0nuU4hMpdN6RG3gUuqV0j9TwHE5EM",
-      authDomain: "fontana-cloud.firebaseapp.com",
-      databaseURL: "https://fontana-cloud-default-rtdb.europe-west1.firebasedatabase.app",
-      projectId: "fontana-cloud",
-      storageBucket: "fontana-cloud.firebasestorage.app",
-      messagingSenderId: "385662415616",
-      appId: "1:385662415616:web:39b743c10fb12eccfb79e5"
-    };
-    try {
-      firebase.initializeApp(firebaseConfig);
-      window.firebaseDB = firebase.database();
-      console.log("🔥 Firebase Inizializzato con Successo");
-    } catch(e) {
-      console.error("Errore inizializzazione Firebase:", e);
-    }
-    
-    // HYBRID COMMAND FUNCTION
-    window.sendCommand = function(path, cloudNode, payload) {
-      if (window.firebaseDB && cloudNode && payload) {
-        payload._t = Date.now();
-        window.firebaseDB.ref('commands/' + cloudNode).set(payload).catch(e => console.warn('Firebase error', e));
-      }
-      
-      const espIp = localStorage.getItem('esp32_ip') || window.location.hostname;
-      const port = (espIp === window.location.hostname && window.location.port) ? window.location.port : '80';
-      const isHttps = window.location.protocol === 'https:';
-      const url = `http://${espIp}:${port}${path}`;
-      
-      try {
-        fetch(url, { mode: 'no-cors' }).catch(e => {}); 
-      } catch (e) {}
-    };
-  </script>
-</head>
 <body>
   <!-- Dynamic Aura Background -->
   <div class="aura-bg">
@@ -3413,9 +3362,6 @@ window.fetch = function(...args) {
   <div id="adminShortcutBtn" onclick="requestAdminAccess()" style="position:fixed; bottom:25px; left:25px; width:45px; height:45px; background:rgba(0,0,0,0.6); backdrop-filter:blur(10px); border:1px solid rgba(0,229,255,0.3); border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:100001; transition:all 0.3s ease; box-shadow:0 4px 15px rgba(0,0,0,0.5);">
     <span style="font-size:1.5rem; filter:drop-shadow(0 0 5px rgba(0,229,255,0.5));">⚙️</span>
   </div>
-  
-  <!-- Indicatore Cloud Sync -->
-  <div id="wsSyncStatus" style="position:fixed; bottom:32px; left:85px; width:12px; height:12px; border-radius:50%; background-color:#ff5252; box-shadow:0 0 8px currentColor; z-index:100001; transition: background-color 0.4s ease;" title="Sincronizzazione non avviata"></div>
 
   <!-- POPUP UTENTE SCONOSCIUTO -->
   <div id="faceUnknownPopup">
@@ -5120,32 +5066,24 @@ async function requestShow(showNumber) {
   if (isMaintenanceActive) return;
   console.log('>>> requestShow START:', showNumber);
 
-  // Invia comando HTTP all'ESP32 e aggiorna il nodo 'show_requests' su Firebase
-  if (typeof window.sendCommand === 'function') {
-    window.sendCommand('/show' + showNumber, 'show_requests', { showId: showNumber });
-  } else {
-    // Fallback if sendCommand isn't ready
-    fetchWithTimeout('/show' + showNumber).catch(e => console.warn(e));
-  }
-  
-  // Aggiorna lo stato globale su Firebase (questo innesterà executeShow su tutti i dispositivi connessi, incluso questo se rileva differenze)
-  if (window.firebaseDB) {
-    window.firebaseDB.ref('sync/state').set({
-      showId: showNumber,
-      elapsed: 0,
-      timestamp: Date.now()
-    }).catch(e => console.warn('Firebase sync/state update error', e));
-  }
-
-  try { showCommandFeedback(false); } catch(e) {}
-  lastLocalShowTrigger = Date.now();
-  lastActiveShowId = showNumber;
-  executeShow(showNumber, 0); // Esegue localmente subito per non avere latenza
-  
-  // Pre-carica in background il prossimo show su TUTTI i dispositivi
-  if (typeof nextShowNumber !== 'undefined' && nextShowNumber > 0 && nextShowNumber !== showNumber) {
-    setTimeout(() => backgroundPreloadShow(nextShowNumber), 3000);
-  }
+  fetchWithTimeout('/show' + showNumber)
+    .then(r => r.text())
+    .then(t => {
+      console.log('Risposta server:', t);
+      try { showCommandFeedback(false); } catch(e) {}
+      lastLocalShowTrigger = Date.now();
+      lastActiveShowId = showNumber;
+      executeShow(showNumber, 0);
+      // Pre-carica in background il prossimo show su TUTTI i dispositivi
+      if (typeof nextShowNumber !== 'undefined' && nextShowNumber > 0 && nextShowNumber !== showNumber) {
+        setTimeout(() => backgroundPreloadShow(nextShowNumber), 3000);
+      }
+    })
+    .catch(e => {
+      hideAudioLoadingOverlay();
+      console.error('Errore fetch show:', e);
+      showCommandFeedback(true);
+    });
 }
 
 
@@ -5301,88 +5239,139 @@ let lastActiveShowId = 0;    // Tracks the current show ID playing locally
 let lastLocalShowTrigger = 0;  // Timestamp of last local show trigger (requestShow)
 let isExecutingShow = false;   // Guard against overlapping executeShow calls
 
-
 function startWebSocketSync() {
-  const syncStatusIndicator = document.getElementById('wsSyncStatus');
-  if (!window.firebaseDB) return;
-  
-  if (syncStatusIndicator) {
-    syncStatusIndicator.style.backgroundColor = 'orange';
-    syncStatusIndicator.title = 'Connessione Firebase in corso...';
+  if (!syncStatusIndicator) {
+    syncStatusIndicator = document.createElement('div');
+    syncStatusIndicator.id = 'wsStatusIndicator';
+    syncStatusIndicator.style.position = 'fixed';
+    syncStatusIndicator.style.bottom = '10px';
+    syncStatusIndicator.style.left = '10px';
+    syncStatusIndicator.style.width = '12px';
+    syncStatusIndicator.style.height = '12px';
+    syncStatusIndicator.style.borderRadius = '50%';
+    syncStatusIndicator.style.backgroundColor = 'orange'; // Starts orange (connecting)
+    syncStatusIndicator.style.zIndex = '999999';
+    syncStatusIndicator.style.opacity = '0.6';
+    syncStatusIndicator.style.boxShadow = '0 0 5px rgba(0,0,0,0.3)';
+    syncStatusIndicator.title = 'Connessione WebSocket in corso...';
+    document.body.appendChild(syncStatusIndicator);
   }
 
-  const syncRef = window.firebaseDB.ref('sync/state');
-  
-  syncRef.on('value', (snapshot) => {
-    const data = snapshot.val();
-    if (!data) return;
-    
+  // Costruiamo l'URL WebSocket puntando alla porta 81
+  const wsUrl = `ws://${window.location.hostname}:81/`;
+  wsSync = new WebSocket(wsUrl);
+
+  wsSync.onopen = () => {
+    console.log("WebSocket Sync Connected");
     if (syncStatusIndicator) {
-      syncStatusIndicator.style.backgroundColor = '#00e5ff'; 
-      syncStatusIndicator.title = 'Cloud Sync Attivo';
+      syncStatusIndicator.style.backgroundColor = '#00e676';
+      syncStatusIndicator.title = 'Sincronizzazione WS OK';
     }
-    
-    const showNum = parseInt(data.showId || 0);
-    const elapsed = parseFloat(data.elapsed || 0);
-    
-    if (data.speak && data.speak.trim() !== '') {
-      if (typeof _speakEvent === 'function') _speakEvent(data.speak);
-      else if (typeof speakEventPhrase === 'function') speakEventPhrase(data.speak);
-    }
+  };
 
-    if (data.volume !== undefined) {
-      let newVol = parseInt(data.volume);
-      if (newVol !== window.currentGlobalVolume) {
-        window.currentGlobalVolume = newVol;
-        applyGlobalVolume(newVol);
-        let slider = document.getElementById('globalVolumeSlider');
-        if (slider && slider.value != newVol) {
-          slider.value = newVol;
-          let disp = document.getElementById('globalVolumeDisplay');
-          if (disp) disp.innerText = newVol + '%';
+  wsSync.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      let showNum = parseInt(data.show);
+      let elapsed = parseInt(data.elapsed) || 0;
+      
+      // Controllo Saluti Personalizzati / TTS remoto
+      if (data.speak !== undefined && data.speak !== "") {
+        console.log("WS Sync: ricevuto comando vocale remoto -> " + data.speak);
+        if (typeof _speakEvent === 'function') {
+          _speakEvent(data.speak);
+        } else if (typeof speakEventPhrase === 'function') {
+          speakEventPhrase(data.speak);
         }
       }
-    }
 
-    if (showNum > 0) {
-      if (showNum === localFinishedShowId) return;
-      if (showNum === lastActiveShowId && (Date.now() - lastLocalShowTrigger) < 3000) {
+      if (data.volume !== undefined) {
+        let newVol = parseInt(data.volume);
+        if (newVol !== window.currentGlobalVolume) {
+          window.currentGlobalVolume = newVol;
+          applyGlobalVolume(newVol);
+          
+          let slider = document.getElementById('globalVolumeSlider');
+          if (slider && slider.value != newVol) {
+            slider.value = newVol;
+            let disp = document.getElementById('globalVolumeDisplay');
+            if (disp) disp.innerText = newVol + '%';
+          }
+          playVolumeBeep(newVol);
+        }
+      }
+
+      if (data.voiceVolume !== undefined) {
+        let newVol = parseInt(data.voiceVolume);
+        if (newVol !== window.currentVoiceVolume) {
+          window.currentVoiceVolume = newVol;
+          let slider = document.getElementById('voiceVolumeSlider');
+          if (slider && slider.value != newVol) {
+            slider.value = newVol;
+            let disp = document.getElementById('voiceVolumeDisplay');
+            if (disp) disp.innerText = newVol + '%';
+          }
+        }
+      }
+
+      if (showNum > 0) {
+        if (showNum === localFinishedShowId) return;
+
+        // Se questo dispositivo ha già avviato lo show localmente da poco (< 3s), ignora il WS
+        if (showNum === lastActiveShowId && (Date.now() - lastLocalShowTrigger) < 3000) {
+          lastPolledShow = showNum;
+          return;
+        }
+
+        let audio = document.getElementById('audio' + showNum);
+        if (audio) {
+          if (audio.paused || Math.abs(audio.currentTime - (elapsed / 1000.0)) > 3.0) {
+            console.log("WS Sync: innesco show", showNum, "tempo", elapsed);
+            executeShow(showNum, elapsed);
+            lastActiveShowId = showNum;
+            
+            // Pre-carica il prossimo show in background su questo dispositivo
+            if (typeof nextShowNumber !== 'undefined' && nextShowNumber > 0 && nextShowNumber !== showNum) {
+              setTimeout(() => backgroundPreloadShow(nextShowNumber), 8000);
+            }
+          }
+        } else {
+           executeShow(showNum, elapsed);
+           lastActiveShowId = showNum;
+        }
         lastPolledShow = showNum;
-        return;
-      }
-
-      let audio = document.getElementById('audio' + showNum);
-      if (audio) {
-        if (audio.paused || Math.abs(audio.currentTime - (elapsed / 1000.0)) > 3.0) {
-          executeShow(showNum, elapsed);
-          lastActiveShowId = showNum;
-        }
       } else {
-         executeShow(showNum, elapsed);
-         lastActiveShowId = showNum;
+        if (localFinishedShowId !== 0) {
+          localFinishedShowId = 0;
+        }
+        if (lastPolledShow > 0) {
+          console.log("WS Sync: rilevato stop show");
+          stopAllShows();
+        }
+        lastPolledShow = 0;
+        lastActiveShowId = 0;
       }
-    } else {
-      if (lastActiveShowId !== 0) {
-         if ((Date.now() - lastLocalShowTrigger) < 3000) return;
-         stopAllShows(true);
-         lastActiveShowId = 0;
-      }
+    } catch(e) {
+      console.warn("Errore parsing WS JSON", e);
     }
-  }, (error) => {
-    console.error("Firebase Sync Error:", error);
-    if (syncStatusIndicator) syncStatusIndicator.style.backgroundColor = '#ff5252';
-  });
+  };
+
+  wsSync.onclose = () => {
+    console.warn("WebSocket Disconnected. Reconnecting in 2s...");
+    if (syncStatusIndicator) {
+      syncStatusIndicator.style.backgroundColor = 'red';
+      syncStatusIndicator.title = 'Sincronizzazione offline. Riconnessione...';
+    }
+    clearTimeout(wsReconnectTimeout);
+    wsReconnectTimeout = setTimeout(startWebSocketSync, 2000);
+  };
   
-  const connectedRef = window.firebaseDB.ref('.info/connected');
-  connectedRef.on('value', (snap) => {
-    console.log("Firebase connection state:", snap.val());
-    if (snap.val() === true) {
-      if (syncStatusIndicator) syncStatusIndicator.style.backgroundColor = '#00e5ff';
-    } else {
-      if (syncStatusIndicator) syncStatusIndicator.style.backgroundColor = '#ff5252';
-    }
-  });
+  wsSync.onerror = (err) => {
+    console.error("WebSocket Error:", err);
+    wsSync.close(); // Forza la chiusura per innescare onclose e la riconnessione
+  };
 }
+
 // Avvio logic di sincronizzazione WebSocket
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', startWebSocketSync);
@@ -8022,7 +8011,7 @@ function sendPopupStateToIframe(isOpen) {
     iframe.contentWindow.postMessage({
       type: 'fontana_popup_state',
       open: isOpen
-    }, '*'); // Wildcard per consentire la comunicazione con il nuovo dominio su Render
+    }, 'https://ai.fontanabyloriorl.it');
   }
 }
 
@@ -8041,34 +8030,15 @@ function openAiPopup() {
   if (voiceWidget) voiceWidget.style.opacity = '0'; // Smoothly hide the parent voice widget
   
   if (loading) loading.style.opacity = '1';
-
-  // Funzione helper per caricare l'iframe
-  const loadIframe = () => {
-    if (iframe) {
-      // Aggiunto /ai alla fine per puntare direttamente alla pagina corretta
-      iframe.src = 'https://fontana-ai.onrender.com/ai';
-      iframe.onload = () => { 
-        iframeLoaded = true;
-        if (loading) loading.style.opacity = '0';
-        sendPopupStateToIframe(true);
-      };
-    }
-  };
-
-  // Richiesta permessi microfono dal Parent per sbloccare l'Iframe (Fix iOS/Safari)
-  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-    navigator.mediaDevices.getUserMedia({ audio: true })
-      .then(stream => {
-        // Chiudiamo subito lo stream locale, rilasciando il microfono per l'iframe
-        stream.getTracks().forEach(track => track.stop());
-        setTimeout(loadIframe, 300); // Piccolo ritardo per garantire che l'hardware sia libero
-      })
-      .catch(err => {
-        console.warn("Permesso microfono negato o errore:", err);
-        loadIframe(); // Carica comunque in caso di errore (magari l'utente ha già dato il consenso prima)
-      });
-  } else {
-    loadIframe();
+  
+  // Carica dinamicamente l'iframe solo all'apertura del popup
+  if (iframe) {
+    iframe.src = 'https://fontana-ai.onrender.com';
+    iframe.onload = () => { 
+      iframeLoaded = true;
+      if (loading) loading.style.opacity = '0';
+      sendPopupStateToIframe(true);
+    };
   }
   
   overlay.style.visibility = 'visible';
