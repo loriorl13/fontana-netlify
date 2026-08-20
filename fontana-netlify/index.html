@@ -49,6 +49,19 @@ window.fetch = function(...args) {
   if (typeof args[0] === 'string' && args[0].startsWith('/')) {
     args[0] = ESP_URL + args[0];
   }
+  // Aggiungi header device_id a tutte le richieste reali verso l'ESP32
+  if (typeof args[0] === 'string' && args[0].startsWith(ESP_URL)) {
+    const devId = localStorage.getItem('device_id');
+    if (devId) {
+      if (!args[1]) args[1] = {};
+      if (!args[1].headers) args[1].headers = {};
+      if (args[1].headers instanceof Headers) {
+        args[1].headers.append('device_id', devId);
+      } else {
+        args[1].headers['device_id'] = devId;
+      }
+    }
+  }
   return originalFetch.apply(window, args);
 };
 
@@ -2819,6 +2832,18 @@ setInterval(window.updateClock, 1000);
         </div>
         <audio id="welcomeAudio" src="https://loriorl13.github.io/fontana-audio/welcome.mp3" preload="auto" loop volume="0.070"></audio>
         <audio id="enterAudio" src="https://loriorl13.github.io/fontana-audio/entrabotton.mp3" preload="auto" volume="0.8"></audio>
+
+        <!-- === ADMIN LOGIN === -->
+        <div style="margin-top:18px; text-align:center;">
+          <span onclick="document.getElementById('adminLoginPanel').style.display=document.getElementById('adminLoginPanel').style.display==='none'?'flex':'none'" style="font-size:0.72rem; color:rgba(255,255,255,0.25); cursor:pointer; letter-spacing:1px; user-select:none;">● ● ●</span>
+        </div>
+        <div id="adminLoginPanel" style="display:none; flex-direction:column; align-items:center; gap:10px; margin-top:10px; background:rgba(0,0,0,0.45); border:1px solid rgba(0,229,255,0.2); border-radius:16px; padding:20px 28px; backdrop-filter:blur(12px); position:relative; z-index:10005;">
+          <div style="font-size:0.8rem; color:#00e5ff; font-weight:700; letter-spacing:2px; text-transform:uppercase; margin-bottom:4px;">🔑 Accesso Admin</div>
+          <input id="adminUser" type="text" placeholder="Username" autocomplete="off" style="width:200px; padding:10px 14px; border-radius:10px; border:1px solid rgba(0,229,255,0.3); background:rgba(255,255,255,0.07); color:#fff; font-size:0.95rem; outline:none; text-align:center;">
+          <input id="adminPass" type="password" placeholder="Password" autocomplete="off" style="width:200px; padding:10px 14px; border-radius:10px; border:1px solid rgba(0,229,255,0.3); background:rgba(255,255,255,0.07); color:#fff; font-size:0.95rem; outline:none; text-align:center;" onkeydown="if(event.key==='Enter') adminLogin();">
+          <button onclick="adminLogin()" style="margin-top:4px; padding:10px 36px; border-radius:10px; background:linear-gradient(135deg,#00e5ff,#0077b6); border:none; color:#000; font-weight:800; font-size:0.95rem; cursor:pointer; letter-spacing:1px;">ENTRA 🚀</button>
+          <div id="adminLoginError" style="color:#ff5252; font-size:0.8rem; display:none; font-weight:700;">❌ Credenziali errate</div>
+        </div>
         
     </div>
     <div id="waterTransition"></div>
@@ -3619,20 +3644,8 @@ setInterval(window.updateClock, 1000);
       localStorage.setItem('fontana_ui_zoom', val); // also save legacy key
     }
 
-    // --- Global Fetch Interceptor for Security ---
-    const originalFetch = window.fetch;
-    window.fetch = function() {
-        let [resource, config] = arguments;
-        if (!config) config = {};
-        if (!config.headers) config.headers = {};
-        // Se c'è un Headers object nativo o un dizionario
-        if (config.headers instanceof Headers) {
-            if(localStorage.getItem('device_id')) config.headers.append('device_id', localStorage.getItem('device_id'));
-        } else {
-            if(localStorage.getItem('device_id')) config.headers['device_id'] = localStorage.getItem('device_id');
-        }
-        return originalFetch(resource, config);
-    };
+
+    // device_id header → gestito dal bridge principale in cima alla pagina
 
     // --- Auth Logic ---
     let deviceId = localStorage.getItem('device_id');
@@ -4015,6 +4028,42 @@ function disattivaModalitaAutomatica() {
         }, stepTime);
       });
     }
+
+    // === ADMIN LOGIN CON CREDENZIALI ===
+    function adminLogin() {
+      const u = (document.getElementById('adminUser').value || '').trim();
+      const p = (document.getElementById('adminPass').value || '').trim();
+      const errEl = document.getElementById('adminLoginError');
+      // Credenziali admin: admin/lori123 oppure loriorl/lori123
+      if ((u === 'admin' || u === 'loriorl') && (p === 'lori123' || p === 'admin')) {
+        if (errEl) errEl.style.display = 'none';
+        userRole = 'admin';
+        activeUserName = u;
+        // Aggiorna UI welcome come utente approvato
+        const reqEl = document.getElementById('requestAccessContainer');
+        const subEl = document.getElementById('welcomeSubtext');
+        const enterCont = document.getElementById('enterContainer');
+        const nameEl = document.getElementById('welcomeUserName');
+        const imgEl = document.getElementById('welcomeUserImg');
+        const adminSec = document.getElementById('adminSystemSection');
+        if (reqEl) reqEl.style.display = 'none';
+        if (subEl) subEl.style.display = 'none';
+        if (nameEl) nameEl.textContent = u === 'loriorl' ? 'Lorenzo' : 'Admin';
+        if (imgEl) imgEl.src = 'https://raw.githubusercontent.com/loriorl13/fontana-audio/main/logo-loriorl-256.png';
+        if (enterCont) enterCont.style.display = 'flex';
+        if (adminSec) adminSec.style.display = '';
+        // Chiudi il pannello login
+        const panel = document.getElementById('adminLoginPanel');
+        if (panel) panel.style.display = 'none';
+        // Entra direttamente
+        setTimeout(() => enterSite(), 300);
+      } else {
+        if (errEl) { errEl.style.display = 'block'; setTimeout(() => errEl.style.display='none', 3000); }
+        const passEl = document.getElementById('adminPass');
+        if (passEl) { passEl.value = ''; passEl.focus(); }
+      }
+    }
+    // === FINE ADMIN LOGIN ===
 
     async function enterSite() {
       if (isTransitioning) return;
