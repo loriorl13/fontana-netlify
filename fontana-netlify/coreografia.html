@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fontana Danzante — Generatore Show</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --blue: #00e5ff;
+      --green: #00e676;
+      --purple: #7c4dff;
+      --orange: #ff6d00;
+      --red: #ff1744;
+      --bg: #060a14;
+      --card: rgba(255,255,255,0.04);
+      --border: rgba(0,229,255,0.15);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      font-family: 'Outfit', sans-serif;
+      color: #fff;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Sfondo animato ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 20% 10%, rgba(0,100,255,0.12) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 40% at 80% 80%, rgba(0,229,255,0.08) 0%, transparent 60%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .wrapper { position: relative; z-index: 1; max-width: 780px; margin: 0 auto; padding: 40px 20px 80px; }
+
+    /* ── Header ── */
+    header { text-align: center; margin-bottom: 50px; }
+    .logo-icon {
+      font-size: 3.5rem;
+      display: block;
+      margin-bottom: 12px;
+      filter: drop-shadow(0 0 20px rgba(0,229,255,0.6));
+      animation: float 3s ease-in-out infinite;
+    }
+    @keyframes float {
+      0%,100% { transform: translateY(0); }
+      50%      { transform: translateY(-8px); }
+    }
+    header h1 {
+      font-size: clamp(1.8rem, 5vw, 2.8rem);
+      font-weight: 900;
+      background: linear-gradient(135deg, #fff 0%, var(--blue) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1.1;
+    }
+    header p {
+      color: rgba(255,255,255,0.45);
+      font-size: 0.95rem;
+      margin-top: 8px;
+      font-weight: 300;
+    }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 28px;
+      margin-bottom: 20px;
+      backdrop-filter: blur(12px);
+      transition: border-color 0.3s;
+    }
+    .card:hover { border-color: rgba(0,229,255,0.35); }
+    .card-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--blue);
+      margin-bottom: 18px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* ── Upload Zone ── */
+    .upload-zone {
+      border: 2px dashed rgba(0,229,255,0.3);
+      border-radius: 16px;
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s;
+      position: relative;
+      overflow: hidden;
+    }
+    .upload-zone:hover, .upload-zone.drag-over {
+      border-color: var(--blue);
+      background: rgba(0,229,255,0.05);
+    }
+    .upload-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+    .upload-icon { font-size: 2.5rem; margin-bottom: 10px; }
+    .upload-zone h3 { font-size: 1.1rem; font-weight: 600; margin-bottom: 4px; }
+    .upload-zone p { font-size: 0.85rem; color: rgba(255,255,255,0.4); }
+
+    /* ── Track Info ── */
+    #trackInfo {
+      display: none;
+      align-items: center;
+      gap: 16px;
+      padding: 16px;
+      background: rgba(0,229,255,0.06);
+      border-radius: 12px;
+      border: 1px solid rgba(0,229,255,0.2);
+      margin-top: 16px;
+    }
+    .track-icon { font-size: 2rem; flex-shrink: 0; }
+    .track-details h4 { font-size: 1rem; font-weight: 600; }
+    .track-details p { font-size: 0.8rem; color: rgba(255,255,255,0.5); margin-top: 2px; }
+
+    /* ── Waveform / beats viz ── */
+    #beatViz {
+      display: none;
+      margin-top: 20px;
+    }
+    .beat-bar-wrap {
+      height: 60px;
+      background: rgba(0,0,0,0.3);
+      border-radius: 10px;
+      overflow: hidden;
+      position: relative;
+    }
+    #beatCanvas { width: 100%; height: 100%; }
+
+    /* ── Buttons ── */
+    .btn-primary {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      padding: 16px;
+      border: none;
+      border-radius: 14px;
+      font-family: 'Outfit', sans-serif;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.25s;
+      background: linear-gradient(135deg, var(--blue), var(--purple));
+      color: #000;
+      letter-spacing: 0.02em;
+    }
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 30px rgba(0,229,255,0.35);
+    }
+    .btn-primary:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .btn-primary.loading {
+      background: linear-gradient(135deg, #1a3a4a, #2a1a5a);
+      color: rgba(255,255,255,0.7);
+      pointer-events: none;
+    }
+
+    /* ── Spinner ── */
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Progress Steps ── */
+    #progressSection { display: none; }
+    .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 14px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .step:last-child { border-bottom: none; }
+    .step-icon {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.9rem;
+      flex-shrink: 0;
+      background: rgba(255,255,255,0.07);
+      color: rgba(255,255,255,0.4);
+      transition: all 0.4s;
+    }
+    .step.active .step-icon {
+      background: rgba(0,229,255,0.15);
+      color: var(--blue);
+      border: 1px solid var(--blue);
+      box-shadow: 0 0 12px rgba(0,229,255,0.3);
+    }
+    .step.done .step-icon {
+      background: rgba(0,230,118,0.15);
+      color: var(--green);
+      border: 1px solid var(--green);
+    }
+    .step.error .step-icon {
+      background: rgba(255,23,68,0.15);
+      color: var(--red);
+      border: 1px solid var(--red);
+    }
+    .step-content h4 { font-size: 0.9rem; font-weight: 600; }
+    .step-content p {
+      font-size: 0.8rem;
+      color: rgba(255,255,255,0.4);
+      margin-top: 2px;
+      transition: color 0.3s;
+    }
+    .step.active .step-content p { color: var(--blue); }
+    .step.done .step-content p { color: var(--green); }
+    .step.error .step-content p { color: var(--red); }
+
+    /* ── Coreografia Preview ── */
+    #choreoPreview { display: none; }
+    .choreo-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 4px;
+    }
+    .choreo-box {
+      background: rgba(0,0,0,0.3);
+      border-radius: 12px;
+      padding: 16px;
+      border: 1px solid rgba(255,255,255,0.07);
+    }
+    .choreo-box h5 {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: rgba(255,255,255,0.4);
+      margin-bottom: 8px;
+    }
+    .choreo-box .big { font-size: 2rem; font-weight: 900; color: var(--blue); }
+    .choreo-box .label { font-size: 0.75rem; color: rgba(255,255,255,0.4); }
+
+    /* ── Player ── */
+    #playerSection { display: none; }
+    .player-wrap {
+      background: rgba(0,0,0,0.4);
+      border-radius: 16px;
+      padding: 20px;
+      text-align: center;
+      border: 1px solid rgba(0,230,118,0.2);
+    }
+    .player-hint {
+      font-size: 0.85rem;
+      color: rgba(255,255,255,0.5);
+      margin-bottom: 14px;
+    }
+    .player-hint strong { color: var(--green); }
+    audio {
+      width: 100%;
+      border-radius: 10px;
+      accent-color: var(--blue);
+    }
+
+    /* ── Status badge ── */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+    }
+    .status-badge.online {
+      background: rgba(0,230,118,0.12);
+      border: 1px solid rgba(0,230,118,0.3);
+      color: var(--green);
+    }
+    .status-badge .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      animation: pulse 1.5s ease infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity: 1; }
+      50%      { opacity: 0.3; }
+    }
+
+    /* ── Pump visualization ── */
+    .pump-grid {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+    .pump-dot {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.1);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.65rem;
+      color: rgba(255,255,255,0.3);
+      transition: all 0.2s;
+    }
+    .pump-dot.active {
+      background: rgba(0,229,255,0.3);
+      border-color: var(--blue);
+      color: var(--blue);
+      box-shadow: 0 0 8px rgba(0,229,255,0.4);
+    }
+  </style>
+</head>
+<body>
+<div class="wrapper">
+
+  <header>
+    <span class="logo-icon">💦</span>
+    <h1>Fontana Danzante<br>Generatore Show</h1>
+    <p>Carica un brano MP3 e genera una coreografia come show nativo</p>
+  </header>
+
+  <!-- Step 1: Upload -->
+  <div class="card">
+    <div class="card-title">🎵 Carica Brano</div>
+    <div class="upload-zone" id="uploadZone">
+      <input type="file" id="audioFileInput" accept="audio/mp3,audio/wav,audio/m4a,audio/*">
+      <div class="upload-icon">🎶</div>
+      <h3>Trascina un file MP3 qui</h3>
+      <p>oppure clicca per sfogliare • MP3, WAV, M4A</p>
+    </div>
+    <div id="trackInfo">
+      <div class="track-icon">🎵</div>
+      <div class="track-details">
+        <h4 id="trackName">—</h4>
+        <p id="trackMeta">—</p>
+      </div>
+    </div>
+    <div id="beatViz">
+      <div class="beat-bar-wrap">
+        <canvas id="beatCanvas"></canvas>
+      </div>
+      <p style="font-size:0.75rem; color:rgba(255,255,255,0.35); margin-top:6px; text-align:center;" id="beatsFoundLabel"></p>
+    </div>
+  </div>
+
+  <!-- Step 2: Generate -->
+  <div class="card">
+    <div class="card-title">⚡ Genera Coreografia</div>
+    <button class="btn-primary" id="generateBtn" disabled onclick="generateShow()">
+      <span>⚡</span>
+      <span>Genera e Invia Show alla Fontana</span>
+    </button>
+  </div>
+
+  <!-- Progress -->
+  <div class="card" id="progressSection">
+    <div class="card-title">📡 Stato Elaborazione</div>
+    <div id="step1" class="step">
+      <div class="step-icon">1</div>
+      <div class="step-content">
+        <h4>Analisi Battiti</h4>
+        <p id="step1msg">In attesa...</p>
+      </div>
+    </div>
+    <div id="step2" class="step">
+      <div class="step-icon">2</div>
+      <div class="step-content">
+        <h4>Generazione Coreografia</h4>
+        <p id="step2msg">In attesa...</p>
+      </div>
+    </div>
+    <div id="step3" class="step">
+      <div class="step-icon">3</div>
+      <div class="step-content">
+        <h4>Invio alla Fontana</h4>
+        <p id="step3msg">In attesa...</p>
+      </div>
+    </div>
+    <div id="step4" class="step">
+      <div class="step-icon">4</div>
+      <div class="step-content">
+        <h4>Show Pronto</h4>
+        <p id="step4msg">In attesa...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Choreo Preview -->
+  <div class="card" id="choreoPreview">
+    <div class="card-title">📊 Dettagli Coreografia</div>
+    <div class="choreo-grid">
+      <div class="choreo-box">
+        <h5>💧 Pompe</h5>
+        <div class="big" id="statPumps">—</div>
+        <div class="label">eventi generati</div>
+      </div>
+      <div class="choreo-box">
+        <h5>💡 LED</h5>
+        <div class="big" id="statLeds">—</div>
+        <div class="label">cambi colore</div>
+      </div>
+      <div class="choreo-box">
+        <h5>🥁 Battiti</h5>
+        <div class="big" id="statBeats">—</div>
+        <div class="label">rilevati</div>
+      </div>
+      <div class="choreo-box">
+        <h5>⏱️ Durata</h5>
+        <div class="big" id="statDuration">—</div>
+        <div class="label">minuti</div>
+      </div>
+    </div>
+    <div style="margin-top:16px;">
+      <p style="font-size:0.75rem; color:rgba(255,255,255,0.35); margin-bottom:8px;">POMPE ATTIVE</p>
+      <div class="pump-grid" id="pumpGrid"></div>
+    </div>
+  </div>
+
+  <!-- Player -->
+  <div class="card" id="playerSection">
+    <div class="card-title">▶️ Riproduci Show</div>
+    <div class="player-wrap">
+      <p class="player-hint">
+        <strong>Premi PLAY</strong> — la fontana ballerà in sincronia con la musica! 💦
+      </p>
+      <audio id="audioPlayer" controls></audio>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const FONTANA_URL = 'https://fontana.fontanabyloriorl.it';
+const NETLIFY_FN  = '/.netlify/functions/choreography';
+
+// Palette LED vivaci
+const LED_PALETTE = [
+  [255, 0, 100], [0, 200, 255], [150, 0, 255],
+  [255, 200, 0], [0, 255, 120], [255, 80, 0],
+  [255, 255, 255], [0, 100, 255], [255, 0, 200],
+  [100, 255, 0],
+];
+
+let audioBuffer = null;
+let audioUrl    = null;
+let beats       = [];
+
+// ── Drag & Drop ──────────────────────────────────────────────
+const zone = document.getElementById('uploadZone');
+zone.addEventListener('dragover',  e => { e.preventDefault(); zone.classList.add('drag-over'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+zone.addEventListener('drop', e => {
+  e.preventDefault();
+  zone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) processFile(file);
+});
+document.getElementById('audioFileInput').addEventListener('change', e => {
+  if (e.target.files[0]) processFile(e.target.files[0]);
+});
+
+function processFile(file) {
+  document.getElementById('trackName').innerText = file.name.replace(/\.[^/.]+$/, '');
+  document.getElementById('trackMeta').innerText = `${(file.size / 1024 / 1024).toFixed(1)} MB • ${file.type || 'audio'}`;
+  document.getElementById('trackInfo').style.display = 'flex';
+  document.getElementById('generateBtn').disabled = true;
+  document.getElementById('beatViz').style.display = 'none';
+
+  // Prepara URL per il player
+  if (audioUrl) URL.revokeObjectURL(audioUrl);
+  audioUrl = URL.createObjectURL(file);
+
+  const reader = new FileReader();
+  reader.onload = async e => {
+    const arrBuf = e.target.result;
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    try {
+      audioBuffer = await ctx.decodeAudioData(arrBuf.slice(0));
+      document.getElementById('trackMeta').innerText +=
+        ` • ${formatDuration(audioBuffer.duration)}`;
+      await extractBeats();
+      document.getElementById('generateBtn').disabled = false;
+    } catch(err) {
+      document.getElementById('trackMeta').innerText = '⚠️ Formato non supportato';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function extractBeats() {
+  const sr = audioBuffer.sampleRate;
+  const offline = new OfflineAudioContext(1, audioBuffer.length, sr);
+  const src = offline.createBufferSource();
+  src.buffer = audioBuffer;
+
+  const lp = offline.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 180; // cassa
+
+  src.connect(lp);
+  lp.connect(offline.destination);
+  src.start(0);
+
+  const filtered = await offline.startRendering();
+  const data = filtered.getChannelData(0);
+
+  // Soglia adattiva
+  let maxV = 0;
+  for (let i = 0; i < data.length; i += 50) maxV = Math.max(maxV, Math.abs(data[i]));
+  const thresh  = maxV * 0.68;
+  const winSize = Math.floor(sr * 0.22); // 220ms finestra
+
+  beats = [];
+  for (let i = 0; i < data.length; i++) {
+    if (Math.abs(data[i]) > thresh) {
+      beats.push(i / sr);
+      i += winSize;
+    }
+  }
+
+  // Visualizza beats
+  drawBeatViz(data, sr);
+  document.getElementById('beatsFoundLabel').innerText =
+    `${beats.length} battiti rilevati (${bpmFromBeats(beats)} BPM stimati)`;
+  document.getElementById('beatViz').style.display = 'block';
+}
+
+function drawBeatViz(data, sr) {
+  const canvas = document.getElementById('beatCanvas');
+  const ctx2 = canvas.getContext('2d');
+  const W = canvas.offsetWidth || 700;
+  const H = canvas.offsetHeight || 60;
+  canvas.width = W; canvas.height = H;
+
+  ctx2.clearRect(0, 0, W, H);
+
+  // Waveform
+  const step = Math.ceil(data.length / W);
+  ctx2.strokeStyle = 'rgba(0,229,255,0.25)';
+  ctx2.lineWidth = 1;
+  ctx2.beginPath();
+  for (let x = 0; x < W; x++) {
+    const i = x * step;
+    const y = ((data[i] || 0) * 0.5 + 0.5) * H;
+    x === 0 ? ctx2.moveTo(x, y) : ctx2.lineTo(x, y);
+  }
+  ctx2.stroke();
+
+  // Beats markers
+  beats.forEach(t => {
+    const x = (t / audioBuffer.duration) * W;
+    ctx2.strokeStyle = 'rgba(0,229,255,0.8)';
+    ctx2.lineWidth = 1.5;
+    ctx2.beginPath();
+    ctx2.moveTo(x, 0); ctx2.lineTo(x, H);
+    ctx2.stroke();
+  });
+}
+
+function bpmFromBeats(b) {
+  if (b.length < 2) return '?';
+  const intervals = b.slice(1).map((t, i) => t - b[i]);
+  const avg = intervals.reduce((a, v) => a + v, 0) / intervals.length;
+  return Math.round(60 / avg);
+}
+
+function formatDuration(sec) {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+// ── Generazione Show ─────────────────────────────────────────
+async function generateShow() {
+  if (!audioBuffer || beats.length === 0) return;
+
+  const btn = document.getElementById('generateBtn');
+  btn.disabled = true;
+  btn.classList.add('loading');
+  btn.innerHTML = '<div class="spinner"></div><span>Elaborazione in corso...</span>';
+
+  document.getElementById('progressSection').style.display = 'block';
+  document.getElementById('choreoPreview').style.display = 'none';
+  document.getElementById('playerSection').style.display = 'none';
+
+  resetSteps();
+
+  // Step 1
+  setStep(1, 'active', `Analisi di ${beats.length} battiti...`);
+  await sleep(300);
+  setStep(1, 'done', `${beats.length} battiti (${bpmFromBeats(beats)} BPM)`);
+
+  // Step 2
+  setStep(2, 'active', 'Invio dati al server per la generazione...');
+
+  let result;
+  try {
+    const res = await fetch(NETLIFY_FN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        beats,
+        duration: audioBuffer.duration,
+      })
+    });
+    result = await res.json();
+    if (!res.ok || !result.ok) throw new Error(result.error || 'Errore server');
+    setStep(2, 'done', `${result.totalEvents} eventi generati (${result.pumpEvents} pompe + ${result.ledEvents} LED)`);
+  } catch(e) {
+    setStep(2, 'error', 'Errore: ' + e.message);
+    resetBtn(btn);
+    return;
+  }
+
+  // Step 3
+  setStep(3, 'active', 'Caricamento show sulla fontana...');
+  await sleep(500);
+  if (result.uploadOk) {
+    setStep(3, 'done', 'Show caricato con successo su Web Fontana 4.0');
+  } else {
+    setStep(3, 'error', 'Errore upload: ' + (result.uploadError || 'sconosciuto'));
+    resetBtn(btn);
+    return;
+  }
+
+  // Step 4
+  setStep(4, 'done', '✅ Show nativo pronto — premi PLAY per avviare!');
+
+  // Preview stats
+  document.getElementById('statBeats').innerText    = beats.length;
+  document.getElementById('statDuration').innerText = formatDuration(audioBuffer.duration);
+  document.getElementById('statPumps').innerText    = result.pumpEvents;
+  document.getElementById('statLeds').innerText     = result.ledEvents;
+
+  // Pump dots
+  const grid = document.getElementById('pumpGrid');
+  grid.innerHTML = '';
+  for (let i = 1; i <= 11; i++) {
+    const d = document.createElement('div');
+    d.className = 'pump-dot' + (result.usedPumps && result.usedPumps.includes(i) ? ' active' : '');
+    d.innerText = i;
+    grid.appendChild(d);
+  }
+
+  document.getElementById('choreoPreview').style.display = 'block';
+
+  // Player
+  document.getElementById('audioPlayer').src = audioUrl;
+  document.getElementById('playerSection').style.display = 'block';
+
+  // Avvia show quando premi Play
+  document.getElementById('audioPlayer').onplay = () => {
+    fetch(FONTANA_URL + '/start-dynamic-show').catch(() => {});
+  };
+
+  btn.innerHTML = '<span>✅</span><span>Show Inviato! Premi PLAY ▶️</span>';
+  btn.classList.remove('loading');
+  btn.style.background = 'linear-gradient(135deg, #004d1a, #006622)';
+  btn.style.color = '#00e676';
+}
+
+function setStep(n, state, msg) {
+  const el = document.getElementById('step' + n);
+  el.className = 'step ' + state;
+  document.getElementById('step' + n + 'msg').innerText = msg;
+  if (state === 'active') el.querySelector('.step-icon').innerHTML = '<div class="spinner" style="width:14px;height:14px;border-width:2px;"></div>';
+  else if (state === 'done')  el.querySelector('.step-icon').innerText = '✓';
+  else if (state === 'error') el.querySelector('.step-icon').innerText = '✗';
+}
+
+function resetSteps() {
+  [1,2,3,4].forEach(n => {
+    document.getElementById('step' + n).className = 'step';
+    document.getElementById('step' + n + 'msg').innerText = 'In attesa...';
+    document.getElementById('step' + n).querySelector('.step-icon').innerText = n;
+  });
+}
+
+function resetBtn(btn) {
+  btn.disabled = false;
+  btn.classList.remove('loading');
+  btn.innerHTML = '<span>⚡</span><span>Genera e Invia Show alla Fontana</span>';
+  btn.style.background = '';
+  btn.style.color = '';
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+</script>
+</body>
+</html>

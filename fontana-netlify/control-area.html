@@ -1,0 +1,1466 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+
+<script>
+// --- NETLIFY TO ESP32 BRIDGE ---
+const ESP_URL = 'https://fontana.fontanabyloriorl.it';
+
+// Intercetta tutte le chiamate fetch
+const originalFetch = window.fetch;
+window.fetch = function(url, options) {
+  if (typeof url === 'string' && url.startsWith('/')) {
+    url = ESP_URL + url;
+  }
+  return originalFetch(url, options);
+};
+
+// Intercetta EventSource se usato
+const originalEventSource = window.EventSource;
+if (originalEventSource) {
+  window.EventSource = function(url, options) {
+    if (typeof url === 'string' && url.startsWith('/')) {
+      url = ESP_URL + url;
+    }
+    return new originalEventSource(url, options);
+  };
+}
+</script>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Area Privata</title>
+<style>
+body {
+  margin:0;
+  font-family:'Segoe UI',sans-serif;
+  background: radial-gradient(circle at top, #001a1f, #000);
+  color:#e0f7fa;
+}
+header {
+  position:fixed;
+  top:0; left:0; right:0;
+  background:rgba(0,0,0,0.6);
+  backdrop-filter: blur(6px);
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:10px 16px;
+  z-index:1000;
+}
+#clock { font-size:1.2rem; font-weight:bold; color:#00e5ff; }
+#scheduleStatus { font-size:0.85rem; color:#80deea; white-space:nowrap; }
+
+main {
+  padding:90px 16px 20px;
+  max-width:900px;
+  margin:auto;
+}
+
+.section {
+  background:rgba(255,255,255,0.05);
+  border-radius:14px;
+  padding:16px;
+  margin-bottom:14px;
+  box-shadow:0 6px 18px rgba(0,0,0,0.4);
+}
+
+.section h2 {
+  margin-top:0;
+  font-size:1.1rem;
+  color:#00e5ff;
+}
+
+.btn {
+  width:100%;
+  border:none;
+  border-radius:10px;
+  padding:12px;
+  margin:6px 0;
+  font-size:15px;
+  cursor:pointer;
+  background:linear-gradient(135deg,#00bcd4,#0097a7);
+  color:#000;
+}
+.btn:active { transform:scale(0.97); }
+
+.grid {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+
+/* popup pompe */
+#pumpModal {
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,0.7);
+  display:none;
+  align-items:center;
+  justify-content:center;
+  z-index:2000;
+}
+#pumpModal .content {
+  background:#001f24;
+  border-radius:16px;
+  width:95%;
+  max-width:700px;
+  padding:20px;
+}
+.closeBtn {
+  background:#ff5252;
+  color:white;
+}
+.pumpRow {
+  display:grid;
+  grid-template-columns: 90px 1fr 70px 80px;
+  gap:10px;
+  align-items:center;
+  margin:10px 0;
+}
+.pumpRow input[type=range] { width:100%; }
+.pumpState {
+  font-size:0.85rem;
+  text-align:center;
+  color:#80deea;
+}
+
+
+  .face-card {
+    background:rgba(255,255,255,0.1);
+    border-radius:12px;
+    padding:12px;
+    margin-bottom:10px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    border-left:4px solid #00e5ff;
+  }
+  .face-info { display:flex; align-items:center; gap:15px; }
+  .face-thumb { width:50px; height:50px; border-radius:50%; border:2px solid #00e5ff; object-fit:cover; }
+  .face-info h4 { margin:0; color:#00e5ff; font-size:1rem; }
+  .face-info p { margin:2px 0 0; font-size:0.8rem; color:#80deea; }
+
+  #faceScannerOverlay {
+    position:fixed; inset:0; background:rgba(0,0,0,0.9);
+    z-index:10000; display:none; flex-direction:column;
+    align-items:center; justify-content:center; padding:20px;
+  }
+  #faceScannerVideo {
+    width:100%; max-width:400px; border-radius:15px;
+    transform:scaleX(-1); border:3px solid #00e5ff;
+  }
+  .face-btn-group { display:flex; gap:10px; margin-top:15px; width:100%; max-width:400px; }
+  
+  .face-btn { flex:1; padding:12px; border:none; border-radius:8px; cursor:pointer; font-weight:bold; }
+  .face-btn.yes { background:#00e676; color:#000; }
+  .face-btn.no { background:#ff5252; color:#fff; }
+
+  /* Weather Widget */
+  .weather-widget {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .weather-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(0,229,255,0.1);
+    border: 1px solid rgba(0,229,255,0.3);
+    border-radius: 12px;
+    padding: 15px;
+  }
+  .weather-icon {
+    font-size: 3rem;
+    animation: float 3s ease-in-out infinite;
+  }
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
+  .weather-data {
+    flex: 1;
+    margin-left: 15px;
+  }
+  .wind-speed {
+    font-size: 2rem;
+    font-weight: bold;
+    color: #00e5ff;
+    margin: 0;
+  }
+  .wind-label {
+    font-size: 0.9rem;
+    color: #80deea;
+    margin: 0;
+  }
+  .weather-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .status-indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #00e676;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  .status-indicator.warning {
+    background: #ff9800;
+  }
+  .status-indicator.danger {
+    background: #ff5252;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  .weather-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.85rem;
+    color: #80deea;
+  }
+  .refresh-btn {
+    background: linear-gradient(135deg, #00bcd4, #0097a7);
+    color: #000;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 20px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: transform 0.2s;
+  }
+  .refresh-btn:active {
+    transform: scale(0.95);
+  }
+  .refresh-btn.loading {
+    opacity: 0.6;
+    pointer-events: none;
+  }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+</head>
+<body>
+
+<header>
+  <div>
+    <div id="clock">--:--:--</div>
+    <div id="scheduleStatus">%SCHEDULE_STATUS%</div>
+  </div>
+  <button class="btn" onclick="window.location.href='/'">🏠 Home</button>
+</header>
+
+<main>
+
+<div class="section">
+  <h2>Controlli Rapidi</h2>
+  <div class="grid">
+    <button class="btn" onclick="fetch('/wifi-reset')">🔄 Cambia WiFi</button>
+    <button class="btn" onclick="fetch('/random-led')">🎨 LED Base</button>
+    <button class="btn" onclick="fetch('/base')">🏁 Pompe Base</button>
+    <button class="btn" onclick="toggleNebbia()" id="nebbiaBtn">🌫️ Nebbia</button>
+    <button class="btn" onclick="toggleVentole()" id="ventoleBtn">🌀 Pesci</button>
+    <button class="btn" onclick="toggleCameraGlobal()" id="cameraToggleBtn">📷 Sistema Camera OFF</button>
+    <button class="btn" onclick="toggleTimeAuto()" id="timeAutoBtn">🕒 Show Orari</button>
+    <button class="btn" onclick="resetStats()" style="background:#f44336; color:white;">🗑️ Reset Feedback & Statistiche</button>
+  </div>
+</div>
+
+<div class="section">
+  <h2 style="color:#00e5ff;">🎶 Motore Audio Dinamico</h2>
+  <p style="color:#aaa; font-size:0.9rem; margin-top:-10px; margin-bottom:15px;">Carica un MP3: il sistema analizza i battiti e genera lo show in automatico.</p>
+  
+  <div style="text-align: center; margin-bottom: 15px;">
+    <input type="file" id="audioFileInput" accept="audio/mp3, audio/wav, audio/m4a" style="display:none;" onchange="handleAudioUpload(event)">
+    <button class="btn" style="background:#00e5ff; color:black; width:auto; padding:10px 20px; font-weight:bold; border-radius:30px;" onclick="document.getElementById('audioFileInput').click()">📁 Seleziona Brano MP3</button>
+  </div>
+  
+  <div id="localPlayerContainer" style="display:none; background:#111; padding:15px; border-radius:12px; border:1px solid #00e5ff;">
+    <div style="margin-top:10px;">
+      <button class="btn" style="background:#1DB954; color:white; font-weight:bold;" onclick="analyzeAndGenerate()" id="audioSyncBtn" disabled>⚡ Genera Coreografia Magica!</button>
+    </div>
+    <div id="audioStatusText" style="margin-top:10px; font-size:0.85rem; color:#888;"></div>
+    
+    <div id="audioPlayerWrapper" style="display:none; margin-top:20px; text-align:center;">
+      <p style="font-size:0.8rem; color:#aaa; margin-bottom:5px;">Premi PLAY per ascoltare il brano e far ballare la fontana! 💦</p>
+      <audio id="localAudioPlayer" controls style="width:100%; border-radius:8px;"></audio>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Esperienze Interattive</h2>
+  <p style="color:#aaa; font-size:0.9rem; margin-top:-10px; margin-bottom:15px;">Attiva o disattiva i singoli pulsanti interattivi nella Home per il pubblico.</p>
+  <div class="grid">
+    <button class="btn" onclick="toggleExp('expAi')" id="btnExpAi">🤖 FontanaAI Assistant</button>
+    <button class="btn" onclick="toggleExp('expOrch')" id="btnExpOrch">🖐️ Modalità Orchestra</button>
+    <button class="btn" onclick="toggleExp('expKar')" id="btnExpKar">🎤 Karaoke Mode</button>
+    <button class="btn" onclick="toggleExp('expFeed')" id="btnExpFeed">🌟 Area Feedback</button>
+  </div>
+</div>
+
+<div class="section">
+  <h2>🔊 Volume Globale</h2>
+  <div style="display:flex; align-items:center; gap:15px; margin-top:10px;">
+    <span style="font-size:1.2rem;">🔈</span>
+    <input type="range" id="globalVolumeSlider" min="0" max="100" value="100" style="flex:1;" onchange="setGlobalVolume(this.value)">
+    <span style="font-size:1.2rem;">🔊</span>
+  </div>
+  <p id="globalVolumeDisplay" style="text-align:center; margin-top:10px; font-weight:bold; color:#00e5ff;">100%</p>
+</div>
+
+<div class="section">
+  <h2>🗣️ Volume Voce (Assistente)</h2>
+  <div style="display:flex; align-items:center; gap:15px; margin-top:10px;">
+    <span style="font-size:1.2rem;">🔈</span>
+    <input type="range" id="voiceVolumeSlider" min="0" max="100" value="100" style="flex:1;" onchange="setVoiceVolume(this.value)">
+    <span style="font-size:1.2rem;">🗣️</span>
+  </div>
+  <p id="voiceVolumeDisplay" style="text-align:center; margin-top:10px; font-weight:bold; color:#00e5ff;">100%</p>
+</div>
+
+<div class="section">
+  <h2>💡 Idee & Feedback Utenti</h2>
+  <div id="adminIdeasContainer" style="background:#111; padding:15px; border-radius:12px; border:1px solid #444; max-height:280px; overflow-y:auto;">
+    <p style="color:#aaa;">Caricamento...</p>
+  </div>
+  <button class="btn" style="margin-top:10px; background:#ff5252; color:white; width:auto; padding:5px 20px; font-size:0.85rem;" onclick="clearAdminIdeas()">🗑️ Cancella Tutte</button>
+</div>
+
+<div class="section">
+  <h2>🌬️ Monitoraggio Meteo</h2>
+  <div class="weather-widget">
+    <div class="weather-main">
+      <div class="weather-icon" id="weatherIcon">🌬️</div>
+      <div class="weather-data">
+        <p class="wind-speed" id="windSpeed">-- km/h</p>
+        <p class="wind-label">Velocità Vento</p>
+        <div class="weather-status">
+          <div class="status-indicator" id="windStatusIndicator"></div>
+          <span id="windStatusText">Caricamento...</span>
+        </div>
+      </div>
+    </div>
+    <div class="weather-info">
+      <span id="lastUpdate">Ultimo aggiornamento: --</span>
+      <button class="refresh-btn" id="refreshWeatherBtn" onclick="manualWeatherRefresh()">🔄 Aggiorna Ora</button>
+    </div>
+    
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.1);">
+      <span>Soglia Vento Max (km/h):</span>
+      <div style="display:flex; gap:10px;">
+        <input type="number" id="windThresholdInput" style="width:60px; padding:5px; border-radius:8px; border:none; background:#111; color:white; text-align:center;">
+        <button class="btn" style="width:auto; padding:5px 15px; margin:0; font-size:0.8rem;" onclick="saveWindCheck()">Salva</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Pompe</h2>
+  <button class="btn" onclick="openPumps()">🎛️ Controllo Manuale Pompe</button>
+</div>
+
+
+  <div class="section">
+    <h2>Impostazioni Show Automatici 🕒</h2>
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span>Intervallo (minuti):</span>
+        <input type="number" id="autoInterval" style="width:60px; padding:5px; border-radius:8px; border:none; background:#111; color:white;">
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span>Inizio Silenzio (ora 0-23):</span>
+        <input type="number" id="quietStart" style="width:60px; padding:5px; border-radius:8px; border:none; background:#111; color:white;">
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span>Fine Silenzio (ora 0-23):</span>
+        <input type="number" id="quietEnd" style="width:60px; padding:5px; border-radius:8px; border:none; background:#111; color:white;">
+      </div>
+      <button class="btn" onclick="saveAutoSettings()" style="background:#00e676;">Salva Impostazioni 💾</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2 style="margin:0;">Coda Show Automatici 🔀</h2>
+      <button onclick="shufflePlaylist()" class="btn" style="width:auto; padding:5px 15px; font-size:0.9rem; margin:0; background:linear-gradient(135deg, #fbc02d, #f9a825);">Rimescola</button>
+    </div>
+    <div id="adminPlaylistList" style="margin-top:15px; max-height:250px; overflow-y:auto; font-size:0.9rem; color:#aaa; padding:10px; background:rgba(0,0,0,0.3); border-radius:10px;">
+      <p style='opacity:0.5'>Caricamento...</p>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>🕐 Orario Apertura/Chiusura Fontana</h2>
+    <p style="font-size:0.85rem; color:#80deea; margin:0 0 12px;">
+      Fuori da questi orari la pagina principale mostrerà la schermata <strong>"Fontana Chiusa"</strong> con l'orario di riapertura.
+    </p>
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span>Apre alle:</span>
+        <input type="time" id="fontanaOpenHour" style="width:100px; padding:5px; border-radius:8px; border:none; background:#111; color:white; text-align:center;">
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span>Chiude alle:</span>
+        <input type="time" id="fontanaCloseHour" style="width:100px; padding:5px; border-radius:8px; border:none; background:#111; color:white; text-align:center;">
+      </div>
+      <div style="font-size:0.8rem; color:#546e7a; font-style:italic;">
+        💡 Se ore apertura = ore chiusura → fontana sempre aperta
+      </div>
+      <button class="btn" onclick="saveFontanaSchedule()" style="background:linear-gradient(135deg,#00e5ff,#00bcd4); color:#000; font-weight:bold;">Salva Orario ⏰</button>
+    </div>
+  </div>
+
+  <div class="section" id="accessAdminSection">
+    <h2>🔐 Gestionale Accessi Dispositivi</h2>
+    <p style="font-size:0.8rem; color:#80deea; margin-bottom:15px;">Approva o revoca l'accesso ai dispositivi che hanno richiesto l'abilitazione.</p>
+    
+    <div style="margin-bottom:20px;">
+      <h3 style="font-size:0.9rem; color:#ff9800; text-transform:uppercase; margin-bottom:10px;">Richieste Pendenti</h3>
+      <div id="pendingAccessList">
+        <!-- JS render -->
+        <p style="font-size:0.8rem; opacity:0.5;">Nessuna richiesta pendente.</p>
+      </div>
+    </div>
+
+    <div>
+      <h3 style="font-size:0.9rem; color:#00e5ff; text-transform:uppercase; margin-bottom:10px;">Dispositivi Autorizzati</h3>
+      <div id="approvedAccessList">
+        <!-- JS render -->
+      </div>
+    </div>
+    
+    <button class="btn" onclick="refreshAccessAdmin()" style="background:rgba(255,255,255,0.05); margin-top:15px; font-size:0.8rem;">Aggiorna Liste 🔄</button>
+  </div>
+
+  <div class="section">
+    <h2>Area Saluti 🗣️</h2>
+    <p style="font-size:0.8rem; color:#80deea;">Fai salutare i cuginetti in tutta la piscina!</p>
+    <div class="grid">
+      <button class="btn" style="background:linear-gradient(135deg, #ff9800, #f57c00);" onclick="sendGreeting('domenico')">👋 Domenico</button>
+      <button class="btn" style="background:linear-gradient(135deg, #e91e63, #c2185b);" onclick="sendGreeting('lavinia')">👋 Lavinia</button>
+      <button class="btn" style="background:linear-gradient(135deg, #4caf50, #388e3c);" onclick="sendGreeting('antonio')">👋 Antonio</button>
+    </div>
+    <div style="margin-top:10px;">
+      <input type="text" id="customGreeting" placeholder="Scrivi un saluto personalizzato..." style="width:100%; padding:10px; border-radius:8px; border:none; margin-bottom:8px; box-sizing:border-box; background:#111; color:white;">
+      <button class="btn" style="background:linear-gradient(135deg, #00bcd4, #00838f);" onclick="sendCustomGreeting()">Invia Messaggio Vocale 🎤</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Gestionale Volti 👤</h2>
+    <p style="font-size:0.8rem; color:#80deea;">Registra le persone per saluti personalizzati.</p>
+    <div id="facesList">
+       <!-- Lista dei volti salvati -->
+    </div>
+    <button class="btn" onclick="openFaceScanner()" style="background:linear-gradient(135deg, #7b1fa2, #9c27b0); color:white; cursor:pointer; z-index:10;">➕ Registra Nuovo Volto</button>
+    <button class="btn" onclick="location.href='/led-control'" style="background:linear-gradient(135deg, #00e5ff, #0288d1); color:#fff; font-weight:bold; margin-top:10px;">🎨 Gestione LED Professionale</button>
+  </div>
+</main>
+
+<!-- Modale Modifica Volto -->
+<div id="faceEditModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:200000; align-items:center; justify-content:center; backdrop-filter:blur(5px);">
+  <div style="background:#1e1e1e; padding:30px; border-radius:20px; width:90%; max-width:400px; text-align:center; border:1px solid #333;">
+    <h3>Modifica Profilo</h3>
+    <input type="hidden" id="editFaceIndex">
+    <div style="margin:20px 0;">
+       <img id="editFaceImgPreview" src="" style="width:100px; height:100px; border-radius:50%; object-fit:cover; margin-bottom:15px; border:2px solid #00e5ff; background:#333;">
+       <br>
+       <label class="btn" style="background:#4CAF50; cursor:pointer; font-size:0.9rem; padding:8px 15px;">
+         📷 Scegli Nuova Foto
+         <input type="file" id="editFacePhotoInput" accept="image/*" style="display:none;" onchange="handleEditPhotoUpload(event)">
+       </label>
+    </div>
+    <div style="text-align:left; margin-bottom:15px;">
+       <label style="color:#aaa; font-size:0.9rem;">Nome Persona:</label>
+       <input type="text" id="editFaceName" style="width:100%; padding:12px; border-radius:8px; border:none; margin-top:5px; background:#111; color:white;">
+    </div>
+    <div style="text-align:left; margin-bottom:15px;">
+       <label style="color:#aaa; font-size:0.9rem;">Ruolo:</label>
+       <select id="editFaceRuolo" style="width:100%; padding:12px; border-radius:8px; border:none; margin-top:5px; background:#111; color:white;">
+         <option value="user">👤 User (normale)</option>
+         <option value="admin">⭐ Admin (accesso completo)</option>
+       </select>
+    </div>
+    <div style="text-align:left; margin-bottom:15px;">
+       <label style="color:#aaa; font-size:0.9rem;">Show Preferito:</label>
+       <select id="editFaceShowSel" style="width:100%; padding:12px; border-radius:8px; border:none; margin-top:5px; background:#111; color:white;"></select>
+    </div>
+    <div style="display:flex; gap:10px; margin-top:20px;">
+       <button class="btn" style="background:#555; width:50%;" onclick="closeFaceEditModal()">Annulla</button>
+       <button class="btn" style="background:linear-gradient(135deg, #00e5ff, #0288d1); width:50%;" onclick="saveFaceEdit()">Salva</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- popup pompe -->
+<div id="pumpModal">
+  <div class="content">
+    <h2>Controllo Pompe</h2>
+    <div id="pumpsArea">
+      <div class="pumpRow"><label>Pompa 1</label><input type="range" min="0" max="255" value="0" oninput="setPump(1, this)"><span id="val1">0</span><div class="pumpState" id="pumpState1">OFF</div></div>
+      <div class="pumpRow"><label>Pompa 2</label><input type="range" min="0" max="255" value="0" oninput="setPump(2, this)"><span id="val2">0</span><div class="pumpState" id="pumpState2">OFF</div></div>
+      <div class="pumpRow"><label>Pompa 3</label><input type="range" min="0" max="255" value="0" oninput="setPump(3, this)"><span id="val3">0</span><div class="pumpState" id="pumpState3">OFF</div></div>
+      <div class="pumpRow"><label>Pompa 4</label><input type="range" min="0" max="255" value="0" oninput="setPump(4, this)"><span id="val4">0</span><div class="pumpState" id="pumpState4">OFF</div></div>
+      <div class="pumpRow"><label>Pompa 5</label><input type="range" min="0" max="255" value="0" oninput="setPump(5, this)"><span id="val5">0</span><div class="pumpState" id="pumpState5">OFF</div></div>
+      <div class="pumpRow"><label>Pompa 6</label><input type="range" min="0" max="255" value="0" oninput="setPump(6, this)"><span id="val6">0</span><div class="pumpState" id="pumpState6">OFF</div></div>
+      <button class="btn" style="background:#ff5252; color:white; width:100%; margin-top:15px;" onclick="fetch('/stop')">🛑 STOP TUTTE LE POMPE</button>
+    </div>
+    <button class="btn closeBtn" onclick="closePumps()">Chiudi</button>
+  </div>
+</div>
+
+<!-- NUOVO OVERLAY SCANNER VOLTI -->
+<div id="faceScannerOverlay">
+  <h2 style="color:#00e5ff; margin-bottom:20px;">Registrazione Volto</h2>
+  <div id="scannerContainer" style="position:relative; width:100%; max-width:400px;">
+    <video id="faceScannerVideo" autoplay playsinline muted></video>
+    <div style="position:absolute; inset:20px; border:2px dashed #00e5ff; border-radius:10px; pointer-events:none;"></div>
+  </div>
+  
+  <div id="cameraControls" style="margin-top:15px; width:100%; max-width:400px; text-align:left;">
+    <label style="color:#aaa; font-size:0.85rem;">Regola Luminosità ☀️:</label>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <input type="range" id="camBrightness" min="0.3" max="1.5" step="0.1" value="1.0" style="flex:1;" oninput="document.getElementById('faceScannerVideo').style.filter = 'brightness(' + this.value + ')'">
+    </div>
+  </div>
+  
+  <div id="faceRegForm" style="display:none; margin-top:20px; width:100%; max-width:400px; background:rgba(255,255,255,0.05); padding:20px; border-radius:15px;">
+      <input type="text" id="faceName" placeholder="Nome Persona" style="width:100%; padding:12px; border-radius:8px; border:none; margin-bottom:10px; background:#111; color:white;">
+      <select id="faceShowFav" style="width:100%; padding:12px; border-radius:8px; border:none; margin-bottom:10px; background:#111; color:white;">
+         <!-- Populated dynamically -->
+      </select>
+      <select id="faceRuolo" style="width:100%; padding:12px; border-radius:8px; border:none; margin-bottom:10px; background:#111; color:white;">
+         <option value="user">👤 User (normale)</option>
+         <option value="admin">⭐ Admin (accesso completo)</option>
+      </select>
+      <button class="btn" onclick="saveFaceProfile()" style="background:#00e676;">Salva Profilo ✅</button>
+  </div>
+
+  <div class="face-btn-group" id="scannerActions">
+    <button class="btn" onclick="captureFace()" style="background:#00e5ff;">Cattura Volto 📸</button>
+    <button class="btn" onclick="closeFaceScanner()" style="background:#ff5252; color:white;">Annulla</button>
+  </div>
+</div>
+
+<script>
+console.log("Area Privata: Script Startup...");
+const FACES_BLOB_URL = '/api/faces';
+
+function sendGreeting(name) {
+  let phrases = [];
+  if (name === 'domenico') {
+    phrases = [
+      "Ciao Domenico! Spero ti piaccia la fontana!",
+      "Ehi Domenico, guarda questi getti d'acqua!",
+      "Un saluto speciale al piccolo Domenico, buon divertimento in piscina!",
+      "Domenico, la fontana sta ballando solo per te!"
+    ];
+  } else if (name === 'lavinia') {
+    phrases = [
+      "Ciao Lavinia! Sei pronta per lo spettacolo?",
+      "Un grandissimo abbraccio alla bellissima Lavinia!",
+      "Lavinia, questa fontana balla per te, tuffati!",
+      "Benvenuta Lavinia, regina dell'acqua!"
+    ];
+  } else if (name === 'antonio') {
+    phrases = [
+      "Ehi Antonio, attenzione agli schizzi!",
+      "Un grande saluto ad Antonio, il re della piscina!",
+      "Antonio, goditi lo spettacolo dell'acqua!",
+      "Ciao Antonio, preparati a bagnarti!"
+    ];
+  }
+  
+  if (phrases.length > 0) {
+    let msg = phrases[Math.floor(Math.random() * phrases.length)];
+    fetch('/api/speak?text=' + encodeURIComponent(msg))
+      .then(r => r.text())
+      .then(t => console.log("Saluto inviato:", t))
+      .catch(e => console.error("Errore invio saluto:", e));
+  }
+}
+
+function sendCustomGreeting() {
+  let txt = document.getElementById('customGreeting').value;
+  if (txt.trim()) {
+    fetch('/api/speak?text=' + encodeURIComponent(txt))
+      .then(r => r.text())
+      .then(t => console.log("Saluto custom inviato:", t))
+      .catch(e => console.error("Errore invio saluto custom:", e));
+    document.getElementById('customGreeting').value = '';
+  }
+}
+
+let nebbiaOn = false;
+let ventoleOn = false;
+let timeAutoEnabled = true;
+let serverTimeOffset = 0;
+
+function updateClock() {
+  const now = new Date(Date.now() + serverTimeOffset);
+  const h = now.getHours().toString().padStart(2, '0');
+  const m = now.getMinutes().toString().padStart(2, '0');
+  const s = now.getSeconds().toString().padStart(2, '0');
+  const d = now.getDate().toString().padStart(2, '0');
+  const mo = (now.getMonth() + 1).toString().padStart(2, '0');
+  const y = now.getFullYear();
+  const clockEl = document.getElementById('clock');
+  if(clockEl) clockEl.textContent = `${d}/${mo}/${y} ${h}:${m}:${s}`;
+}
+
+function syncTime() {
+  fetch("/get-auto-settings").then(r => r.json()).then(data => {
+    if (data.serverTime) { serverTimeOffset = (data.serverTime * 1000) - Date.now(); updateClock(); }
+    if (data.volume !== undefined) {
+      let v = data.volume;
+      let slider = document.getElementById('globalVolumeSlider');
+      let disp = document.getElementById('globalVolumeDisplay');
+      if (slider) slider.value = v;
+      if (disp) disp.innerText = v + '%';
+    }
+    if (data.voiceVolume !== undefined) {
+      let vv = data.voiceVolume;
+      let vslider = document.getElementById('voiceVolumeSlider');
+      let vdisp = document.getElementById('voiceVolumeDisplay');
+      if (vslider) vslider.value = vv;
+      if (vdisp) vdisp.innerText = vv + '%';
+    }
+  }).catch(e => console.warn("Sync time fallito"));
+}
+setInterval(updateClock, 1000);
+syncTime();
+
+function setGlobalVolume(val) {
+  let disp = document.getElementById('globalVolumeDisplay');
+  if (disp) disp.innerText = val + '%';
+  fetch('/set-volume?val=' + val)
+    .then(() => console.log("Volume impostato a " + val))
+    .catch(e => console.error("Errore impostazione volume", e));
+}
+
+function setVoiceVolume(val) {
+  let disp = document.getElementById('voiceVolumeDisplay');
+  if (disp) disp.innerText = val + '%';
+  fetch('/set-voice-volume?val=' + val)
+    .then(() => {
+      console.log("Volume voce impostato a " + val);
+      let msg = new SpeechSynthesisUtterance("Prova");
+      msg.lang = 'it-IT';
+      msg.volume = val / 100.0;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(msg);
+    })
+    .catch(e => console.error("Errore impostazione volume voce", e));
+}
+
+function openPumps(){ document.getElementById("pumpModal").style.display="flex"; }
+function closePumps(){ document.getElementById("pumpModal").style.display="none"; }
+function setPump(i, arg) {
+  const val = arg.value;
+  const valEl = document.getElementById('val' + i);
+  if(valEl) valEl.innerText = val;
+  const stateEl = document.getElementById("pumpState" + i);
+  if(stateEl) {
+    stateEl.innerText = (val > 0) ? "ON" : "OFF";
+    stateEl.style.color = (val > 0) ? "#00e676" : "#ff5252";
+  }
+  fetch('/pompa' + i + '?val=' + val);
+}
+
+function toggleNebbia() { nebbiaOn = !nebbiaOn; document.getElementById("nebbiaBtn").textContent = nebbiaOn ? "🌫️ Nebbia ON" : "🌫️ Nebbia OFF"; fetch("/nebbia?state=" + (nebbiaOn?1:0)); }
+function toggleVentole() { ventoleOn = !ventoleOn; document.getElementById("ventoleBtn").textContent = ventoleOn ? "🌀 Pesci ON" : "🌀 Pesci OFF"; fetch(ventoleOn ? "/ventole-on" : "/ventole-off"); }
+function toggleTimeAuto() { timeAutoEnabled = !timeAutoEnabled; document.getElementById("timeAutoBtn").textContent = timeAutoEnabled ? "🕒 Show Orari ON" : "🕒 Show Orari OFF"; fetch("/time-auto?enable=" + (timeAutoEnabled?1:0)); }
+
+async function fetchWeatherData() {
+  try {
+    const r = await fetch('/weather');
+    const data = await r.json();
+    if(!data.valid) return;
+    document.getElementById('windSpeed').textContent = data.windSpeed.toFixed(1) + ' km/h';
+    const indicator = document.getElementById('windStatusIndicator');
+    const statusText = document.getElementById('windStatusText');
+    if(indicator && statusText) {
+      indicator.className = 'status-indicator' + (data.windSpeed > data.threshold ? ' danger' : (data.windSpeed > 15 ? ' warning' : ''));
+      statusText.textContent = data.windSpeed > data.threshold ? 'Vento Forte' : (data.windSpeed > 15 ? 'Vento Moderato' : 'Vento Calmo');
+    }
+    document.getElementById('lastUpdate').textContent = `Ultimo aggiornamento: ${new Date().toLocaleTimeString()}`;
+    const thInput = document.getElementById('windThresholdInput');
+    if(thInput && document.activeElement !== thInput) thInput.value = data.threshold;
+  } catch(e) { console.error("Errore meteo:", e); }
+}
+function manualWeatherRefresh() { fetchWeatherData(); }
+function saveWindCheck() {
+  const val = document.getElementById('windThresholdInput').value;
+  fetch('/save-wind-settings?threshold=' + val).then(() => { alert("Soglia salvata! ✅"); fetchWeatherData(); });
+}
+
+function loadAutoSettings() {
+  fetch("/get-auto-settings").then(r => r.json()).then(data => {
+    if(document.getElementById("autoInterval")) document.getElementById("autoInterval").value = data.interval;
+    if(document.getElementById("quietStart")) document.getElementById("quietStart").value = data.quietStart;
+    if(document.getElementById("quietEnd")) document.getElementById("quietEnd").value = data.quietEnd;
+    if(document.getElementById("fontanaOpenHour") && data.fontanaOpenTime !== undefined) {
+      const h = Math.floor(data.fontanaOpenTime / 60).toString().padStart(2, '0');
+      const m = (data.fontanaOpenTime % 60).toString().padStart(2, '0');
+      document.getElementById("fontanaOpenHour").value = `${h}:${m}`;
+    }
+    if(document.getElementById("fontanaCloseHour") && data.fontanaCloseTime !== undefined) {
+      const h = Math.floor(data.fontanaCloseTime / 60).toString().padStart(2, '0');
+      const m = (data.fontanaCloseTime % 60).toString().padStart(2, '0');
+      document.getElementById("fontanaCloseHour").value = `${h}:${m}`;
+    }
+    timeAutoEnabled = data.enabled;
+    const btn = document.getElementById("timeAutoBtn");
+    if(btn) btn.textContent = timeAutoEnabled ? "🕒 Show Orari ON" : "🕒 Show Orari OFF";
+    
+    if (data.expAi !== undefined) expState.expAi = (data.expAi === 1);
+    if (data.expOrch !== undefined) expState.expOrch = (data.expOrch === 1);
+    if (data.expKar !== undefined) expState.expKar = (data.expKar === 1);
+    if (data.expFeed !== undefined) expState.expFeed = (data.expFeed === 1);
+    updateExpBtnsUI();
+  });
+}
+function saveAutoSettings() {
+  const interval = document.getElementById("autoInterval").value;
+  const quietStart = document.getElementById("quietStart").value;
+  const quietEnd = document.getElementById("quietEnd").value;
+  fetch(`/save-auto-settings?interval=${interval}&quietStart=${quietStart}&quietEnd=${quietEnd}`).then(() => alert("Salvato! ✅"));
+}
+
+let expState = { expAi: true, expOrch: true, expKar: true, expFeed: true };
+
+function toggleExp(key) {
+  expState[key] = !expState[key];
+  updateExpBtnsUI();
+  fetch(`/save-auto-settings?${key}=${expState[key] ? '1' : '0'}`).then(() => alert("Stato aggiornato! ✅"));
+}
+
+function updateExpBtnsUI() {
+  const map = {
+    'expAi': { id: 'btnExpAi', text: '🤖 FontanaAI Assistant' },
+    'expOrch': { id: 'btnExpOrch', text: '🖐️ Modalità Orchestra' },
+    'expKar': { id: 'btnExpKar', text: '🎤 Karaoke Mode' },
+    'expFeed': { id: 'btnExpFeed', text: '🌟 Area Feedback' }
+  };
+  for (const k in map) {
+    const btn = document.getElementById(map[k].id);
+    if (btn) {
+      btn.textContent = map[k].text + (expState[k] ? ' (ON)' : ' (OFF)');
+      btn.style.background = expState[k] ? 'linear-gradient(135deg,#00e5ff,#00b8d4)' : '#555';
+    }
+  }
+}
+function saveFontanaSchedule() {
+  const openVal = document.getElementById('fontanaOpenHour').value;
+  const closeVal = document.getElementById('fontanaCloseHour').value;
+  if(!openVal || !closeVal) return alert("Inserisci orari!");
+  const [oh, om] = openVal.split(':').map(Number);
+  const [ch, cm] = closeVal.split(':').map(Number);
+  fetch(`/save-auto-settings?fontanaOpenTime=${oh*60+om}&fontanaCloseTime=${ch*60+cm}`).then(() => alert("Orario salvato! ✅"));
+}
+
+function refreshAccessAdmin() {
+  fetch('/admin/get-requests').then(r => r.json()).then(reqs => {
+    const list = document.getElementById('pendingAccessList');
+    if (list) list.innerHTML = reqs.length === 0 ? '<p style="opacity:0.5; font-size:0.8rem;">Nessuna richiesta.</p>' : reqs.map(r => `
+      <div class="access-list-item">
+        <span>${r.name}</span>
+        <div style="display:flex; gap:5px;">
+          <button class="btn" style="width:auto; padding:5px 10px; font-size:0.7rem;" onclick="approveAccess('${r.id}','user')">User</button>
+          <button class="btn" style="width:auto; padding:5px 10px; font-size:0.7rem; background:#f44336;" onclick="approveAccess('${r.id}','admin')">Admin</button>
+        </div>
+      </div>`).join('');
+  });
+  fetch('/admin/get-approved').then(r => r.json()).then(devs => {
+    const list = document.getElementById('approvedAccessList');
+    if (list) list.innerHTML = devs.map(d => `
+      <div class="access-list-item">
+        <span><strong>${d.name}</strong> (${d.role})</span>
+        <button class="btn" style="width:auto; padding:5px 10px; font-size:0.7rem; background:#ff5252;" onclick="revokeAccess('${d.id}')">Revoca</button>
+      </div>`).join('');
+  });
+}
+function approveAccess(id, role) { fetch(`/admin/approve-access?id=${id}&role=${role}`).then(() => refreshAccessAdmin()); }
+function revokeAccess(id) { if(confirm('Revocare?')) fetch(`/admin/revoke-access?id=${id}`).then(() => refreshAccessAdmin()); }
+
+function loadPlaylistData(shuffle = false) {
+  const url = shuffle ? '/admin/playlist?shuffle=1' : '/admin/playlist';
+  fetch(url)
+    .then(r => r.json())
+    .then(data => {
+        const listEl = document.getElementById('adminPlaylistList');
+        if(!listEl) return;
+        listEl.innerHTML = '';
+        
+        const nextShow = CONTROL_SHOW_NAMES[data.nextShowNumber] || ("Show " + data.nextShowNumber);
+        listEl.innerHTML += `<div style="padding:8px; background:rgba(0,229,255,0.1); border-left:3px solid #00e5ff; margin-bottom:10px; border-radius:4px; color:white;">
+            <strong>Prossimo:</strong> ${nextShow}
+        </div>`;
+        
+        if (data.playlist && data.playlist.length > 0) {
+            let html = '<div style="margin-bottom:8px; font-weight:bold; color:#fbc02d;">In Coda:</div>';
+            data.playlist.forEach((showId, idx) => {
+                const sName = CONTROL_SHOW_NAMES[showId] || ("Show " + showId);
+                html += `<div style="padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.05); display:flex; gap:10px; color:white;">
+                    <span style="opacity:0.5; width:25px;">${idx + 1}.</span>
+                    <span>${sName}</span>
+                </div>`;
+            });
+            listEl.innerHTML += html;
+        } else {
+            listEl.innerHTML += `<p style='opacity:0.5'>Coda in fase di generazione o vuota.</p>`;
+        }
+    }).catch(e => console.error("Errore playlist:", e));
+}
+
+function shufflePlaylist() {
+    if(confirm("Vuoi rimescolare l'ordine degli show automatici?")) {
+        loadPlaylistData(true);
+    }
+}
+loadPlaylistData();
+
+function renderAdminIdeas() {
+  const container = document.getElementById('adminIdeasContainer');
+  if(!container) return;
+  fetch('/ideas.json').then(r => r.text()).then(t => {
+    if(!t.trim()) { container.innerHTML = '<p style="color:#aaa;">Nessuna idea.</p>'; return; }
+    const ideas = t.split('\n').filter(l => l.trim().length > 0).map(l => { try { return JSON.parse(l); } catch(e) { return null; } }).filter(i => i !== null);
+    container.innerHTML = ideas.length === 0 ? '<p style="color:#aaa;">Nessuna idea.</p>' : ideas.reverse().map(i => `<div style="border-bottom:1px solid #333; padding:5px 0;"><strong>${i.name}</strong> <small style="color:#888;">${i.date}</small>: ${i.text}</div>`).join('');
+  }).catch(() => { container.innerHTML = '<p style="color:#aaa;">Nessuna idea.</p>'; });
+}
+function clearAdminIdeas() { if(confirm("Cancellare tutto?")) { fetch('/clear-ideas').then(() => renderAdminIdeas()); } }
+
+async function renderFacesList() {
+  const listEl = document.getElementById('facesList');
+  if (!listEl) return;
+  try {
+    let saved = [];
+    const localData = localStorage.getItem('fontana_faces');
+    if (localData) {
+      try { saved = JSON.parse(localData); if (!Array.isArray(saved)) saved = []; } catch(e){}
+    }
+    
+    listEl.innerHTML = saved.length === 0 ? "<p style='color:#666; text-align:center;'>Nessun volto.</p>" : saved.map((p, i) => {
+      const photoSrc = p.photo || 'https://raw.githubusercontent.com/loriorl13/fontana-audio/main/logo-loriorl-256.png';
+      return `<div class='face-card' style='display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:10px; margin-bottom:10px; border-radius:10px;'>
+         <div style="display:flex; align-items:center; gap:15px;">
+           <img src="${photoSrc}" style="width:45px; height:45px; border-radius:50%; object-fit:cover; border:2px solid #555;">
+           <span style="font-size:1rem; font-weight:bold;">${p.name} <br><small style="color:#aaa; font-weight:normal;">Show ID: ${p.showId}</small></span>
+         </div>
+         <div style="display:flex; gap:10px;">
+           <button class='btn' style='width:auto; padding:8px 12px; background:#4CAF50; font-size:1.2rem;' onclick='openFaceEditModal(${i})'>✏️</button>
+           <button class='btn' style='width:auto; padding:8px 12px; background:#ff5252; font-size:1.2rem;' onclick='deleteFace(${i})'>🗑️</button>
+         </div>
+       </div>`;
+    }).join('');
+  } catch(e) {
+    listEl.innerHTML = "<p>Errore caricamento volti</p>";
+  }
+}
+
+// === LOGICA MODIFICA VOLTO ===
+let currentFacesData = [];
+
+async function openFaceEditModal(index) {
+  try {
+    const localData = localStorage.getItem('fontana_faces');
+    currentFacesData = localData ? JSON.parse(localData) : [];
+    const p = currentFacesData[index];
+    if (!p) return;
+    
+    document.getElementById('editFaceIndex').value = index;
+    document.getElementById('editFaceImgPreview').src = p.photo || 'https://raw.githubusercontent.com/loriorl13/fontana-audio/main/logo-loriorl-256.png';
+    
+    document.getElementById('editFaceName').value = p.name || '';
+    document.getElementById('editFaceRuolo').value = p.ruolo || 'user';
+    
+    const sel = document.getElementById('editFaceShowSel');
+    sel.innerHTML = '';
+    for (const [id, name] of Object.entries(CONTROL_SHOW_NAMES)) {
+      sel.innerHTML += `<option value="${id}">${id}. ${name}</option>`;
+    }
+    sel.value = p.showId;
+    
+    document.getElementById('faceEditModal').style.display = 'flex';
+  } catch(e) { alert("Errore caricamento dati"); }
+}
+
+function closeFaceEditModal() {
+  document.getElementById('faceEditModal').style.display = 'none';
+}
+
+function handleEditPhotoUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    // Compress and crop to square
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 120; canvas.height = 120;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#111'; ctx.fillRect(0,0,120,120);
+      
+      const size = Math.min(img.width, img.height);
+      const sx = (img.width - size) / 2;
+      const sy = (img.height - size) / 2;ctx.drawImage(img, sx, sy, size, size, 0, 0, 120, 120);
+      
+      document.getElementById('editFaceImgPreview').src = canvas.toDataURL('image/jpeg', 0.6);
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+async function saveFaceEdit() {
+  const idx = parseInt(document.getElementById('editFaceIndex').value);
+  if (isNaN(idx) || !currentFacesData[idx]) return;
+  
+  currentFacesData[idx].showId = parseInt(document.getElementById('editFaceShowSel').value);
+  currentFacesData[idx].photo = document.getElementById('editFaceImgPreview').src;
+  currentFacesData[idx].name = document.getElementById('editFaceName').value.trim();
+  currentFacesData[idx].ruolo = document.getElementById('editFaceRuolo').value;
+  
+  try {
+    localStorage.setItem('fontana_faces', JSON.stringify(currentFacesData));
+    closeFaceEditModal();
+    renderFacesList();
+  } catch(e) {
+    alert("Errore salvataggio modifiche.");
+  }
+}
+// =============================
+let faceScannerStream = null;
+let currentFaceDescriptor = null;
+let isFaceApiReady = false;
+
+async function initFaceApiModels() {
+  if (isFaceApiReady) return true;
+  
+  const CDN_URLS = [
+    'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights',
+    'https://vladmandic.github.io/face-api/model',
+    'https://justadudewhohacks.github.io/face-api.js/models',
+    'https://unpkg.com/@vladmandic/face-api@1.7.15/model'
+  ];
+  
+  let success = false;
+  let lastErr = null;
+  
+  for (const url of CDN_URLS) {
+    try {
+      await faceapi.nets.tinyFaceDetector.loadFromUri(url);
+      await faceapi.nets.faceLandmark68Net.loadFromUri(url);
+      await faceapi.nets.faceRecognitionNet.loadFromUri(url);
+      success = true;
+      break;
+    } catch(e) {
+      console.warn("Fallback CDN private area: fallito " + url);
+      lastErr = e;
+    }
+  }
+
+  if (success) {
+    isFaceApiReady = true;
+    return true;
+  } else {
+    console.error("Errore init face-api:", lastErr);
+    alert("Errore nel caricamento AI: " + (lastErr ? lastErr.message : "Load failed") + ". Disabilita AdBlock/VPN per questo profilo Safari.");
+    return false;
+  }
+}
+
+const CONTROL_SHOW_NAMES = {
+  1:"Blinding Lights", 2:"X Remix", 3:"Pa Que Lo Bailes", 4:"Titanium",
+  5:"Animals", 6:"Gonna Make You Sweat", 7:"Tusa", 8:"That's Amore",
+  9:"Sexy and I Know It", 10:"All I Want for Xmas", 11:"Show TEST",
+  12:"Tu mi porti su", 13:"Rumore", 14:"L'Ombelico del Mondo",
+  15:"Raindance", 16:"For You", 17:"Give It Up To Me", 18:"Me Rehúso",
+  19:"Ora che non ho più te", 20:"Títí Me Pregúntó", 21:"Fabulous",
+  22:"Don't Stop 'Til You Get Enough", 23:"Papaoutai", 24:"Billie Jean", 25:"Skyfall", 26:"Mentirosa", 27:"Symphony", 28:"Dai Dai"
+};
+
+async function openFaceScanner() {
+  document.getElementById('faceScannerOverlay').style.display = 'flex';
+  document.getElementById('faceRegForm').style.display = 'none';
+  document.getElementById('scannerActions').style.display = 'flex';
+  
+  const favSel = document.getElementById('faceShowFav');
+  if (favSel && favSel.options.length === 0) {
+    for (const [id, name] of Object.entries(CONTROL_SHOW_NAMES)) {
+      favSel.innerHTML += `<option value="${id}">${id}. ${name}</option>`;
+    }
+  }
+  
+  const video = document.getElementById('faceScannerVideo');
+  try {
+    faceScannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+    video.srcObject = faceScannerStream;
+  } catch (err) {
+    console.error("Errore webcam:", err);
+    alert("Impossibile accedere alla webcam.");
+    closeFaceScanner();
+  }
+}
+
+function closeFaceScanner() {
+  document.getElementById('faceScannerOverlay').style.display = 'none';
+  const video = document.getElementById('faceScannerVideo');
+  if (faceScannerStream) {
+    faceScannerStream.getTracks().forEach(track => track.stop());
+    faceScannerStream = null;
+  }
+  video.srcObject = null;
+  currentFaceDescriptor = null;
+  currentFacePhoto = null;
+}
+
+let currentFacePhoto = null;
+
+async function captureFace() {
+  const btn = document.querySelector('#scannerActions button.btn');
+  btn.innerText = "⏳ Analisi in corso...";
+  btn.disabled = true;
+
+  if (!isFaceApiReady) {
+    const ready = await initFaceApiModels();
+    if (!ready) {
+       btn.innerText = "Cattura Volto 📸";
+       btn.disabled = false;
+       return;
+    }
+  }
+
+  const video = document.getElementById('faceScannerVideo');
+  if (!video || !video.srcObject) {
+    btn.innerText = "Cattura Volto 📸";
+    btn.disabled = false;
+    return;
+  }
+
+  try {
+    const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 }))
+                                   .withFaceLandmarks()
+                                   .withFaceDescriptor();
+    if (detection) {
+      currentFaceDescriptor = Array.from(detection.descriptor);
+      
+      // Estrai la foto
+      const canvas = document.createElement('canvas');
+      canvas.width = 120;
+      canvas.height = 120;
+      const ctx = canvas.getContext('2d');
+      const box = detection.detection.box;
+      
+      // Aggiungi un po' di margine (padding) per la foto tonda
+      const pad = 30;
+      const vw = video.videoWidth || 640;
+      const vh = video.videoHeight || 480;
+      
+      let sx = Math.max(0, box.x - pad);
+      let sy = Math.max(0, box.y - pad);
+      let sw = Math.min(vw - sx, box.width + pad*2);
+      let sh = Math.min(vh - sy, box.height + pad*2);
+      
+      ctx.fillStyle = '#111';
+      ctx.fillRect(0, 0, 120, 120);
+      
+      const bSlider = document.getElementById('camBrightness');
+      if (bSlider) {
+         ctx.filter = `brightness(${bSlider.value})`;
+      }
+      
+      if (sw > 0 && sh > 0) {
+        ctx.drawImage(video, sx, sy, sw, sh, 0, 0, 120, 120);
+      }
+      ctx.filter = 'none'; // reset filter
+      currentFacePhoto = canvas.toDataURL('image/jpeg', 0.6); // Compress base64 heavily
+      
+      document.getElementById('scannerActions').style.display = 'none';
+      document.getElementById('faceRegForm').style.display = 'block';
+    } else {
+      alert("Nessun volto rilevato. Riprova posizionandoti bene davanti alla camera.");
+    }
+  } catch (err) {
+    console.error("Errore cattura:", err);
+    alert("Errore durante l'analisi del volto.");
+  }
+  btn.innerText = "Cattura Volto 📸";
+  btn.disabled = false;
+}
+
+async function saveFaceProfile() {
+  const name = document.getElementById('faceName').value.trim();
+  const showId = document.getElementById('faceShowFav').value;
+  const ruolo = document.getElementById('faceRuolo').value;
+
+  if (!name || !currentFaceDescriptor) {
+    alert("Nome mancante o volto non acquisito correttamente.");
+    return;
+  }
+
+  const btn = document.querySelector('#faceRegForm button');
+  if (btn) {
+    btn.innerText = "⏳ Salvataggio in corso...";
+    btn.disabled = true;
+  }
+
+  try {
+    const newProfile = {
+      name: name,
+      showId: parseInt(showId),
+      ruolo: ruolo,
+      descriptor: Array.from(currentFaceDescriptor),
+      photo: currentFacePhoto
+    };
+    
+    let currentFaces = [];
+    const localData = localStorage.getItem('fontana_faces');
+    if (localData) {
+        try { currentFaces = JSON.parse(localData); if(!Array.isArray(currentFaces)) currentFaces = []; } catch(e){}
+    }
+    currentFaces.push(newProfile);
+    localStorage.setItem('fontana_faces', JSON.stringify(currentFaces));
+    
+    alert(`Profilo di ${name} salvato con successo! ✅`);
+    closeFaceScanner();
+    renderFacesList();
+  } catch(e) {
+    alert("Errore durante il salvataggio sul server!");
+    console.error(e);
+  } finally {
+    if (btn) {
+      btn.innerText = "Salva Profilo 💾";
+      btn.disabled = false;
+    }
+  }
+}
+
+async function deleteFace(i) { 
+  if(confirm("Eliminare questo volto?")) { 
+    try {
+      let s = [];
+      const localData = localStorage.getItem('fontana_faces');
+      if (localData) {
+        try { s = JSON.parse(localData); if(!Array.isArray(s)) s = []; } catch(e) { console.error(e); }
+      }
+      s.splice(i,1); 
+      localStorage.setItem('fontana_faces', JSON.stringify(s));
+      renderFacesList(); 
+    } catch(e) {
+      alert("Errore durante l'eliminazione");
+    }
+  } 
+}
+
+// Startup
+fetchWeatherData();
+loadAutoSettings();
+refreshAccessAdmin();
+renderAdminIdeas();
+renderFacesList();
+</script>
+<!-- TASTIERA VIRTUALE (VIRTUAL KEYBOARD) -->
+<style>
+#vkbd-container {
+    position: fixed;
+    bottom: -400px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 95%;
+    max-width: 800px;
+    background: rgba(10, 10, 10, 0.95);
+    border: 2px solid #00e5ff;
+    border-radius: 15px 15px 0 0;
+    box-shadow: 0 -5px 30px rgba(0, 229, 255, 0.3);
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: bottom 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    z-index: 2147483647;
+    backdrop-filter: blur(10px);
+    opacity: 0;
+    visibility: hidden;
+}
+#vkbd-container.active { bottom: 0; opacity: 1; visibility: visible; }
+.vkbd-row { display: flex; justify-content: center; gap: 6px; }
+.vkbd-key {
+    background: #222; color: white; border: 1px solid #444; border-radius: 8px;
+    padding: 12px 0; flex: 1; max-width: 60px; text-align: center; font-size: 1.2rem;
+    font-weight: bold; cursor: pointer; user-select: none; transition: all 0.1s;
+}
+.vkbd-key:hover, .vkbd-key:active { background: #00e5ff; color: #000; transform: scale(0.95); }
+.vkbd-key.wide { flex: 2; max-width: 100px; background: #333; }
+.vkbd-key.space { flex: 5; max-width: 400px; }
+.vkbd-key.close { background: #ff5252; color: white; }
+</style>
+<div id="vkbd-container"></div>
+<script>
+(function() {
+  const layouts = {
+    default: [
+      ['1','2','3','4','5','6','7','8','9','0','-','+'],
+      ['Q','W','E','R','T','Y','U','I','O','P','@'],
+      ['A','S','D','F','G','H','J','K','L',':'],
+      ['⇧','Z','X','C','V','B','N','M', '.', ',', '⌫'],
+      ['CHIUDI', 'SPAZIO', 'INVIO']
+    ]
+  };
+  const container = document.getElementById('vkbd-container');
+  let activeInput = null;
+  let isShift = false;
+  
+  function initKeyboard() {
+    container.innerHTML = '';
+    layouts.default.forEach(row => {
+      const rowDiv = document.createElement('div');
+      rowDiv.className = 'vkbd-row';
+      row.forEach(key => {
+        const keyDiv = document.createElement('div');
+        keyDiv.className = 'vkbd-key';
+        keyDiv.textContent = key;
+        
+        if (key === '⌫') keyDiv.classList.add('wide');
+        if (key === 'CHIUDI') keyDiv.classList.add('wide', 'close');
+        if (key === 'SPAZIO') keyDiv.classList.add('space');
+        if (key === 'INVIO') keyDiv.classList.add('wide');
+        if (key === '⇧') keyDiv.id = 'vkbd-shift';
+        
+        const triggerKey = (e) => { e.preventDefault(); handleKey(key); };
+        keyDiv.addEventListener('mousedown', triggerKey);
+        keyDiv.addEventListener('touchstart', triggerKey, {passive: false});
+        rowDiv.appendChild(keyDiv);
+      });
+      container.appendChild(rowDiv);
+    });
+  }
+  
+  function handleKey(key) {
+    if (!activeInput) return;
+    let val = activeInput.value;
+    let start = activeInput.selectionStart !== null ? activeInput.selectionStart : val.length;
+    let end = activeInput.selectionEnd !== null ? activeInput.selectionEnd : val.length;
+    
+    if (key === 'CHIUDI') {
+      container.classList.remove('active');
+      activeInput.blur();
+      activeInput = null;
+      return;
+    } else if (key === '⌫') {
+      if (start === end && start > 0) {
+        val = val.substring(0, start - 1) + val.substring(end);
+        start--;
+      } else {
+        val = val.substring(0, start) + val.substring(end);
+      }
+    } else if (key === 'SPAZIO') {
+      val = val.substring(0, start) + ' ' + val.substring(end);
+      start++;
+    } else if (key === 'INVIO') {
+      container.classList.remove('active');
+      activeInput.blur();
+      activeInput.dispatchEvent(new KeyboardEvent('keydown', {'key': 'Enter'}));
+      return;
+    } else if (key === '⇧') {
+      isShift = !isShift;
+      const sh = document.getElementById('vkbd-shift');
+      if(sh) { sh.style.background = isShift ? '#00e5ff' : ''; sh.style.color = isShift ? '#000' : ''; }
+      return;
+    } else {
+      let char = isShift ? key.toUpperCase() : key.toLowerCase();
+      val = val.substring(0, start) + char + val.substring(end);
+      start++;
+      if (isShift) {
+        isShift = false;
+        const sh = document.getElementById('vkbd-shift');
+        if(sh) { sh.style.background = ''; sh.style.color = ''; }
+      }
+    }
+    activeInput.value = val;
+    activeInput.dispatchEvent(new Event('input', { bubbles: true }));
+    activeInput.dispatchEvent(new Event('change', { bubbles: true }));
+    try { activeInput.setSelectionRange(start, start); } catch(e) {}
+  }
+  
+  document.addEventListener('focusin', (e) => {
+    if (e.target.tagName === 'INPUT' && ['text', 'password', 'number', 'email', 'time', 'search'].includes(e.target.type)) {
+      activeInput = e.target;
+      container.classList.add('active');
+    }
+  });
+  
+  document.addEventListener('click', (e) => {
+    if (!container.contains(e.target) && e.target.tagName !== 'INPUT') {
+      container.classList.remove('active');
+      if (activeInput) activeInput.blur();
+      activeInput = null;
+    }
+  });
+  
+  initKeyboard();
+})();
+
+// Camera Toggle globale (salva in localStorage)
+function toggleCameraGlobal() {
+   let isEnabled = localStorage.getItem('camera_enabled') === '1';
+   isEnabled = !isEnabled;
+   localStorage.setItem('camera_enabled', isEnabled ? '1' : '0');
+   updateCameraBtnUI();
+}
+
+function updateCameraBtnUI() {
+   let isEnabled = localStorage.getItem('camera_enabled') === '1';
+   let btn = document.getElementById('cameraToggleBtn');
+   if (btn) {
+       btn.textContent = isEnabled ? "📷 Sistema Camera ON" : "📷 Sistema Camera OFF";
+       btn.style.background = isEnabled ? "linear-gradient(135deg,#00bcd4,#0097a7)" : "#555";
+   }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+   updateCameraBtnUI();
+});
+// --- LOCAL AUDIO ANALYZER MODULE ---
+// URL della funzione Netlify - aggiornare dopo il deploy!
+const NETLIFY_FUNCTION_URL = 'https://fontanabyloriorl.netlify.app/.netlify/functions/choreography';
+
+let audioContext;
+let currentAudioBuffer = null;
+let currentAudioUrl = null;
+
+function handleAudioUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  
+  const statusEl = document.getElementById('audioStatusText');
+  statusEl.innerText = 'Decodifica audio in corso... Attendi.';
+  statusEl.style.color = '#00e5ff';
+  document.getElementById('audioSyncBtn').disabled = true;
+  document.getElementById('audioPlayerWrapper').style.display = 'none';
+  
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const arrayBuffer = e.target.result;
+    
+    // Prepara il player audio
+    if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
+    const blob = new Blob([arrayBuffer.slice(0)], { type: file.type });
+    currentAudioUrl = URL.createObjectURL(blob);
+    document.getElementById('localAudioPlayer').src = currentAudioUrl;
+    document.getElementById('localPlayerContainer').style.display = 'block';
+
+    if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    
+    // Decifra il buffer audio per l'analisi beat
+    audioContext.decodeAudioData(arrayBuffer, function(buffer) {
+      currentAudioBuffer = buffer;
+      statusEl.innerText = `Audio decodificato (${Math.round(buffer.duration)}s). Pronto!`;
+      statusEl.style.color = '#00e676';
+      document.getElementById('audioSyncBtn').disabled = false;
+    }, function() {
+      statusEl.innerText = 'Errore decodifica audio (formato non supportato?)';
+      statusEl.style.color = '#ff5252';
+    });
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function analyzeAndGenerate() {
+  if (!currentAudioBuffer) return;
+  const statusEl = document.getElementById('audioStatusText');
+  const btn = document.getElementById('audioSyncBtn');
+  btn.disabled = true;
+  statusEl.style.color = '#ffeb3b';
+  statusEl.innerText = 'Analisi frequenze basse in corso...';
+  
+  // ── Step 1: Estrai beats localmente con Web Audio API ──────
+  const offlineCtx = new OfflineAudioContext(1, currentAudioBuffer.length, currentAudioBuffer.sampleRate);
+  const source = offlineCtx.createBufferSource();
+  source.buffer = currentAudioBuffer;
+  
+  // Filtro passa-basso per isolare la cassa (kick drum)
+  const filter = offlineCtx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 150;
+  source.connect(filter);
+  filter.connect(offlineCtx.destination);
+  source.start(0);
+  
+  let filteredBuffer;
+  try {
+    filteredBuffer = await offlineCtx.startRendering();
+  } catch(e) {
+    statusEl.innerText = 'Errore analisi audio: ' + e.message;
+    statusEl.style.color = '#ff5252';
+    btn.disabled = false;
+    return;
+  }
+  
+  const audioData = filteredBuffer.getChannelData(0);
+  
+  // Calcola soglia dinamica al 70% del picco
+  let maxVal = 0;
+  for (let i = 0; i < audioData.length; i += 100) {
+    if (Math.abs(audioData[i]) > maxVal) maxVal = Math.abs(audioData[i]);
+  }
+  const threshold = maxVal * 0.70;
+  const windowSize = Math.floor(currentAudioBuffer.sampleRate * 0.25); // 250ms min tra beats
+  
+  const beats = [];
+  for (let i = 0; i < audioData.length; i++) {
+    if (Math.abs(audioData[i]) > threshold) {
+      beats.push(i / currentAudioBuffer.sampleRate);
+      i += windowSize;
+    }
+  }
+  
+  statusEl.innerText = `Trovati ${beats.length} battiti. Invio al server per generare lo show...`;
+  
+  // ── Step 2: Invia beats al server Netlify ─────────────────
+  // Il server genera il .bin e lo carica DIRETTAMENTE sull'ESP32 (server-to-server, nessun blocco!)
+  try {
+    const res = await fetch(NETLIFY_FUNCTION_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ beats })
+    });
+    
+    const result = await res.json();
+    
+    if (!res.ok || !result.ok) {
+      throw new Error(result.error || `Errore server: HTTP ${res.status}`);
+    }
+    
+    statusEl.innerText = `✅ Show pronto! ${result.events} eventi caricati. Premi PLAY ▶️`;
+    statusEl.style.color = '#1DB954';
+    document.getElementById('audioPlayerWrapper').style.display = 'block';
+    
+    // Avvia lo show sulla fontana quando l'utente preme Play
+    const player = document.getElementById('localAudioPlayer');
+    player.onplay = () => {
+      fetch('/start-dynamic-show').catch(() => {});
+      console.log('Show dinamico avviato!');
+    };
+    
+  } catch(e) {
+    statusEl.innerText = 'Errore: ' + e.message;
+    statusEl.style.color = '#ff5252';
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>
