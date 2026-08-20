@@ -1,29 +1,25 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-
 <script>
-// --- NETLIFY TO ESP32 BRIDGE ---
+// === PONTE NETLIFY -> ESP32 & MOCK LOCALE ===
 const ESP_URL = 'https://fontana.fontanabyloriorl.it';
+window.serverTimeOffset = 0;
+window.esp32ScheduleReceived = false;
 
-// Intercetta tutte le chiamate fetch
 const originalFetch = window.fetch;
 window.fetch = function(...args) {
-  const url = typeof args[0] === 'string' ? args[0] : '';
+  let url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : '');
 
-  // === MOCK LOCALE (file://) ===
-  // Intercetta le chiamate all'ESP32 e restituisce risposte simulate
-  if (window.location.protocol === 'file:') {
+  // Mock per file:// e local test
+  if (window.location.protocol === 'file:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
     const path = url.startsWith('/') ? url : url.replace('https://fontana.fontanabyloriorl.it', '');
-    
-    // Mock: check-access → risponde "approved" come admin
     if (path.startsWith('/check-access')) {
       return Promise.resolve(new Response(
-        JSON.stringify({ status: 'approved', role: 'admin', name: '🧪 Test Admin', serverTime: Math.floor(Date.now()/1000) }),
+        JSON.stringify({ status: 'approved', role: 'admin', name: 'Lorenzo', serverTime: Math.floor(Date.now()/1000) }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       ));
     }
-    // Mock: get-auto-settings → restituisce settings di default
     if (path.startsWith('/get-auto-settings')) {
       return Promise.resolve(new Response(
         JSON.stringify({ enabled: true, interval: 15, quietStart: 22, quietEnd: 10,
@@ -32,84 +28,46 @@ window.fetch = function(...args) {
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       ));
     }
-    // Mock: meteo vento
+    if (path.startsWith('/get-stats')) {
+      return Promise.resolve(new Response(
+        JSON.stringify({
+          orc_cnt: 12, kar_cnt: 5,
+          shows: [
+            { id: 1, sum: 25, vts: 5 }, { id: 2, sum: 25, vts: 5 }, { id: 3, sum: 24, vts: 5 }, { id: 4, sum: 25, vts: 5 }
+          ],
+          recent: []
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      ));
+    }
     if (path.startsWith('/wind') || path.startsWith('/get-wind')) {
       return Promise.resolve(new Response(
         JSON.stringify({ speed: 0, threshold: 30, blocked: false }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       ));
     }
-    // Tutte le altre chiamate → OK generico
     if (path.length > 1) {
       return Promise.resolve(new Response('OK', { status: 200 }));
     }
   }
-  // === FINE MOCK ===
 
   if (typeof args[0] === 'string' && args[0].startsWith('/')) {
     args[0] = ESP_URL + args[0];
   }
-  // Aggiungi header device_id a tutte le richieste reali verso l'ESP32
-  if (typeof args[0] === 'string' && args[0].startsWith(ESP_URL)) {
-    const devId = localStorage.getItem('device_id');
-    if (devId) {
-      if (!args[1]) args[1] = {};
-      if (!args[1].headers) args[1].headers = {};
-      if (args[1].headers instanceof Headers) {
-        args[1].headers.append('device_id', devId);
-      } else {
-        args[1].headers['device_id'] = devId;
-      }
+
+  const devId = localStorage.getItem('device_id');
+  if (devId) {
+    if (!args[1]) args[1] = {};
+    if (!args[1].headers) args[1].headers = {};
+    if (args[1].headers instanceof Headers) {
+      args[1].headers.append('device_id', devId);
+    } else {
+      args[1].headers['device_id'] = devId;
     }
   }
+
   return originalFetch.apply(window, args);
 };
-
-// Intercetta EventSource se usato
-const originalEventSource = window.EventSource;
-if (originalEventSource) {
-  window.EventSource = function(...args) {
-    if (typeof args[0] === 'string' && args[0].startsWith('/')) {
-      args[0] = ESP_URL + args[0];
-    }
-    return new originalEventSource(...args);
-  };
-}
-</script>
-
-<script>
-// --- GLOBAL BOOTSTRAP: orologio e variabili condivise ---
-// serverTimeOffset è globale così tutti gli scope ci accedono
-window.serverTimeOffset = 0;
-window.esp32ScheduleReceived = false;
-
-// updateClock globale - funziona subito, prima che il resto del codice carichi
-window.updateClock = function() {
-  const now = new Date(Date.now() + (window.serverTimeOffset || 0));
-  const h = now.getHours().toString().padStart(2, '0');
-  const m = now.getMinutes().toString().padStart(2, '0');
-  const s = now.getSeconds().toString().padStart(2, '0');
-  const timeEl = document.getElementById('clock-time');
-  const dateEl = document.getElementById('clock-date');
-  const statusEl = document.getElementById('clock-status');
-  if (timeEl) timeEl.textContent = `${h}:${m}:${s}`;
-  if (dateEl) {
-    const opts = { weekday: 'long', day: 'numeric', month: 'long' };
-    dateEl.textContent = now.toLocaleDateString('it-IT', opts).toUpperCase();
-  }
-  if (statusEl && statusEl.textContent === 'CARICAMENTO...') {
-    statusEl.textContent = 'CONNESSIONE...';
-  }
-  const oldClock = document.getElementById('clock');
-  if (oldClock) {
-    const d = now.getDate().toString().padStart(2, '0');
-    const mo = (now.getMonth() + 1).toString().padStart(2, '0');
-    const y = now.getFullYear();
-    oldClock.textContent = `${d}/${mo}/${y} ${h}:${m}:${s}`;
-  }
-};
-// Avvia subito il tick, anche prima di DOMContentLoaded
-setInterval(window.updateClock, 1000);
 </script>
 
 <link rel="icon" href="https://raw.githubusercontent.com/loriorl13/fontana-audio/main/favicon-loriorl.ico" type="image/x-icon">
@@ -2746,6 +2704,80 @@ setInterval(window.updateClock, 1000);
       .desktop-only { display: none !important; }
     }
   </style>
+
+<style>
+    /* === ARCHITETTURA PULITA DI SCHERMATA & TRANSISIZIONE ZAMPILlI === */
+    .welcome {
+      display: flex !important;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 200000;
+      background: radial-gradient(circle at center, #0a192f 0%, #020c1b 100%);
+      align-items: flex-start;
+      justify-content: center;
+      transition: opacity 0.5s ease;
+      overflow-y: auto;
+      padding: 20px 0;
+    }
+    .welcome.hidden-screen {
+      display: none !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
+    
+    .control-panel {
+      display: none;
+      opacity: 0;
+      transition: opacity 0.5s ease;
+    }
+    .control-panel.active-screen {
+      display: flex !important;
+      opacity: 1 !important;
+      pointer-events: auto !important;
+    }
+
+    #waterTransition {
+      position: fixed;
+      bottom: -150%;
+      left: 0;
+      width: 100vw;
+      height: 150vh;
+      background: radial-gradient(circle at 50% 100%, #ffffff 0%, #00e5ff 30%, #0077b6 65%, rgba(2,12,27,0.98) 95%);
+      z-index: 999999 !important;
+      pointer-events: none;
+      transition: bottom 1.1s cubic-bezier(0.19, 1, 0.22, 1);
+      clip-path: polygon(0 20%, 4% 0, 8% 20%, 12% 0, 16% 20%, 20% 0, 24% 20%, 28% 0, 32% 20%, 36% 0, 40% 20%, 44% 0, 48% 20%, 52% 0, 56% 20%, 60% 0, 64% 20%, 68% 0, 72% 20%, 76% 0, 80% 20%, 84% 0, 88% 20%, 92% 0, 96% 20%, 100% 0, 100% 100%, 0 100%);
+      box-shadow: 0 -50px 150px #00e5ff;
+    }
+    #waterTransition.active {
+      bottom: 0 !important;
+    }
+
+    /* === FEEDBACK MODAL RESPONSIVE FIX & TABS === */
+    #feedbackModal {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.96);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      z-index: 200000;
+      display: none;
+      flex-direction: column;
+      padding: 20px;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    #showStatsContainer {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 12px;
+      padding-bottom: 30px;
+    }
+</style>
+
 <body>
   <!-- Dynamic Aura Background -->
   <div class="aura-bg">
@@ -2804,47 +2836,47 @@ setInterval(window.updateClock, 1000);
     <div id="clock-status" style="font-size:0.75rem; font-weight:700; color:var(--accent); margin-top:2px; text-transform:uppercase; letter-spacing:0.5px;">CARICAMENTO...</div>
   </div><div id="autoStatus" style="display:none;"></div>
   
-  <div class="welcome active" id="welcome">
-    <div id="welcomeScreen" style="display:flex; flex-direction:column; align-items:center;">
-        <h1>Fontana Danzante</h1>
-        <p id="welcomeSubtext">Benvenuto! Accedi per controllare la regia.</p>
+    <!-- WELCOME SCREEN CON FORM REGISTRAZIONE -->
+  <div class="welcome" id="welcome">
+    <div id="welcomeScreen" style="display:flex; flex-direction:column; align-items:center; width:100%; max-width:460px; text-align:center; padding:20px; margin:auto;">
+        <div style="font-size:3.5rem; margin-bottom:10px; filter:drop-shadow(0 0 15px rgba(0,229,255,0.7));">⛲✨</div>
+        <h1 style="font-size:2.2rem; font-weight:800; color:#fff; margin-bottom:4px; text-transform:uppercase; letter-spacing:1px;">Fontana Danzante</h1>
+        <p style="color:#00e5ff; font-size:0.9rem; font-weight:600; letter-spacing:2px; text-transform:uppercase; margin-bottom:20px;">Villa Orlando · Regia Control</p>
         
-        <!-- Bottone ENTRA: appare dopo approvazione -->
-        <div id="enterContainer" style="display:none; flex-direction:column; align-items:center; gap:15px; animation: popupIn 0.6s cubic-bezier(0.19, 1, 0.22, 1);">
-          <div id="welcomeUserCard" style="background:rgba(255,255,255,0.08); padding:15px 30px; border-radius:20px; border:1px solid rgba(0,229,255,0.3); display:flex; align-items:center; gap:15px; backdrop-filter:blur(10px);">
-             <img id="welcomeUserImg" src="" style="width:50px; height:50px; border-radius:50%; border:2px solid #00e5ff; object-fit:cover;">
-             <div style="text-align:left;">
-               <div style="font-size:0.8rem; color:#80deea; text-transform:uppercase; letter-spacing:1px;">Bentornato</div>
-               <div id="welcomeUserName" style="font-size:1.3rem; font-weight:800; color:#fff;">User</div>
-             </div>
+        <!-- CARD FORM DI REGISTRAZIONE INIZIALE -->
+        <div id="mainRegistrationCard" style="width:100%; background:rgba(2, 12, 27, 0.88); border:1px solid rgba(0, 229, 255, 0.35); border-radius:24px; padding:26px; backdrop-filter:blur(20px); box-shadow:0 15px 40px rgba(0,0,0,0.5);">
+          <h3 style="color:#fff; margin:0 0 8px 0; font-size:1.15rem; font-weight:700;">Richiesta Abilitazione Accesso</h3>
+          <p style="color:#80deea; font-size:0.82rem; margin-bottom:16px; opacity:0.9;">Inserisci il tuo nome per richiedere l'accesso al controllo della fontana.</p>
+
+          <input type="text" id="mainAccessNameInput" placeholder="Nome e Cognome (es. Lorenzo)" autocomplete="off" style="width:100%; padding:14px; border-radius:12px; border:1px solid rgba(0,229,255,0.3); background:rgba(255,255,255,0.06); color:#fff; font-size:1rem; outline:none; text-align:center; margin-bottom:12px; box-sizing:border-box;">
+
+          <button id="btnSubmitAccess" onclick="submitMainAccessRequest()" class="auth-btn" style="width:100%; padding:14px; border-radius:12px; background:linear-gradient(135deg,#00e5ff,#0077b6); border:none; color:#000; font-weight:800; font-size:1rem; cursor:pointer; letter-spacing:1px; box-shadow:0 0 15px rgba(0,229,255,0.3);">INVIA RICHIESTA 🚀</button>
+
+          <div id="mainRequestStatus" style="margin-top:14px; font-size:0.88rem; color:#00e5ff; font-weight:bold; display:none; background:rgba(0,229,255,0.1); padding:10px; border-radius:10px;"></div>
+
+          <!-- NOTA LEGALE PRIVATA -->
+          <div style="margin-top:16px; background:rgba(0,229,255,0.05); border:1px solid rgba(0,229,255,0.18); border-radius:12px; padding:10px 14px; font-size:0.75rem; color:#b0bec5; text-align:left; line-height:1.4;">
+            <div style="font-weight:700; color:#00e5ff; margin-bottom:3px; display:flex; align-items:center; gap:5px;">
+              <span>🔒</span> Informativa Piattaforma Privata
+            </div>
+            Questo sito ed applicazione costituiscono un servizio ad uso privato gestito da Villa Orlando. Compilando il modulo, dichiari di essere a conoscenza della natura riservata della piattaforma ed acconsenti al trattamento del tuo identificativo (nome e dispositivo) ai soli fini di abilitazione e sicurezza della regia.
           </div>
-          <button id="mainEnterBtn" onclick="enterSite()" class="auth-btn" style="padding:18px 60px; font-size:1.4rem; min-width:220px;">ENTRA 🚀</button>
         </div>
 
-        <!-- Bottone richiesta accesso - apre il modal esistente -->
-        <div id="requestAccessContainer" style="margin-top:20px; text-align:center; position:relative; z-index:10002; display:none;">
-          <button onclick="openAccessRequest()" class="auth-btn" style="padding:15px 45px; font-size:1.1rem; cursor:pointer; pointer-events:auto !important;">Richiedi Accesso 🔐</button>
-          <div id="requestStatusText" style="margin-top:10px; font-size:0.9rem; color:#00e5ff; font-weight:bold; display:none; text-shadow:0 0 10px rgba(0,229,255,0.5);">Richiesta inviata, attendi approvazione...</div>
+        <!-- ACCESSO ADMIN CON CREDENZIALI -->
+        <div style="margin-top:18px; text-align:center;">
+          <span id="adminToggleText" onclick="toggleAdminPanel()" style="font-size:0.78rem; color:rgba(255,255,255,0.35); cursor:pointer; letter-spacing:2px; user-select:none;">● ● ● Accesso Admin</span>
+        </div>
+        <div id="adminLoginPanel" style="display:none; flex-direction:column; align-items:center; gap:10px; margin-top:10px; background:rgba(0,0,0,0.6); border:1px solid rgba(0,229,255,0.25); border-radius:16px; padding:15px; width:100%; max-width:280px; box-sizing:border-box; backdrop-filter:blur(12px);">
+          <div style="font-size:0.8rem; color:#00e5ff; font-weight:700; letter-spacing:2px; text-transform:uppercase;">🔑 Credenziali Admin</div>
+          <input id="adminUser" type="text" placeholder="Username" autocomplete="off" style="width:100%; max-width:200px; padding:8px 12px; border-radius:8px; border:1px solid rgba(0,229,255,0.3); background:rgba(255,255,255,0.07); color:#fff; font-size:0.9rem; outline:none; text-align:center; box-sizing:border-box;">
+          <input id="adminPass" type="password" placeholder="Password" autocomplete="off" style="width:100%; max-width:200px; padding:8px 12px; border-radius:8px; border:1px solid rgba(0,229,255,0.3); background:rgba(255,255,255,0.07); color:#fff; font-size:0.9rem; outline:none; text-align:center; box-sizing:border-box;" onkeydown="if(event.key==='Enter') adminLogin();">
+          <button onclick="adminLogin()" style="width:100%; max-width:200px; padding:8px 30px; border-radius:8px; background:linear-gradient(135deg,#00e5ff,#0077b6); border:none; color:#000; font-weight:800; font-size:0.9rem; cursor:pointer;">ENTRA 🚀</button>
+          <div id="adminLoginError" style="color:#ff5252; font-size:0.78rem; display:none; font-weight:700;">❌ Credenziali errate</div>
         </div>
 
-        <div id="speaker-container" onclick="toggleWelcomeAudio()" title="Attiva/Disattiva audio">
-          🔈
-        </div>
         <audio id="welcomeAudio" src="https://loriorl13.github.io/fontana-audio/welcome.mp3" preload="auto" loop volume="0.070"></audio>
         <audio id="enterAudio" src="https://loriorl13.github.io/fontana-audio/entrabotton.mp3" preload="auto" volume="0.8"></audio>
-
-        <!-- === ADMIN LOGIN === -->
-        <div style="margin-top:18px; text-align:center;">
-          <span onclick="document.getElementById('adminLoginPanel').style.display=document.getElementById('adminLoginPanel').style.display==='none'?'flex':'none'" style="font-size:0.72rem; color:rgba(255,255,255,0.25); cursor:pointer; letter-spacing:1px; user-select:none;">● ● ●</span>
-        </div>
-        <div id="adminLoginPanel" style="display:none; flex-direction:column; align-items:center; gap:10px; margin-top:10px; background:rgba(0,0,0,0.45); border:1px solid rgba(0,229,255,0.2); border-radius:16px; padding:20px 28px; backdrop-filter:blur(12px); position:relative; z-index:10005;">
-          <div style="font-size:0.8rem; color:#00e5ff; font-weight:700; letter-spacing:2px; text-transform:uppercase; margin-bottom:4px;">🔑 Accesso Admin</div>
-          <input id="adminUser" type="text" placeholder="Username" autocomplete="off" style="width:200px; padding:10px 14px; border-radius:10px; border:1px solid rgba(0,229,255,0.3); background:rgba(255,255,255,0.07); color:#fff; font-size:0.95rem; outline:none; text-align:center;">
-          <input id="adminPass" type="password" placeholder="Password" autocomplete="off" style="width:200px; padding:10px 14px; border-radius:10px; border:1px solid rgba(0,229,255,0.3); background:rgba(255,255,255,0.07); color:#fff; font-size:0.95rem; outline:none; text-align:center;" onkeydown="if(event.key==='Enter') adminLogin();">
-          <button onclick="adminLogin()" style="margin-top:4px; padding:10px 36px; border-radius:10px; background:linear-gradient(135deg,#00e5ff,#0077b6); border:none; color:#000; font-weight:800; font-size:0.95rem; cursor:pointer; letter-spacing:1px;">ENTRA 🚀</button>
-          <div id="adminLoginError" style="color:#ff5252; font-size:0.8rem; display:none; font-weight:700;">❌ Credenziali errate</div>
-        </div>
-        
     </div>
     <div id="waterTransition"></div>
   </div>
@@ -2877,6 +2909,13 @@ setInterval(window.updateClock, 1000);
                 <span id="windMainValDisplay" style="font-weight:700; color:#00e5ff; font-family:'Segoe UI', sans-serif;">--</span>
                 <span style="font-size:0.7rem; color:#80deea; font-weight:600; text-transform:uppercase;">km/h</span>
             </div>
+            
+            <!-- Logout / Cambia Utente Button -->
+            <div id="logoutUserBtn" title="Esci o richiedi un nuovo accesso" onclick="logoutUserSession()" style="display:flex; align-items:center; gap:6px; background:rgba(255,82,82,0.15); padding:6px 14px; border-radius:20px; border:1px solid rgba(255,82,82,0.4); cursor:pointer; transition:all 0.3s ease; user-select:none;">
+                <span style="font-size:1rem;">🚪</span>
+                <span style="font-weight:700; color:#ff5252; font-size:0.85rem;">Esci</span>
+            </div>
+
             <!-- Zoom Slider -->
             <div class="zoom-controls" style="display:flex; align-items:center; gap:8px; margin-right:15px; background:rgba(255,255,255,0.05); padding:6px 12px; border-radius:20px;">
                 <span style="font-size:0.8rem; opacity:0.7;">Zoom</span>
@@ -3644,8 +3683,7 @@ setInterval(window.updateClock, 1000);
       localStorage.setItem('fontana_ui_zoom', val); // also save legacy key
     }
 
-
-    // device_id header → gestito dal bridge principale in cima alla pagina
+    // Duplicate fetch interceptor removed
 
     // --- Auth Logic ---
     let deviceId = localStorage.getItem('device_id');
@@ -4028,42 +4066,6 @@ function disattivaModalitaAutomatica() {
         }, stepTime);
       });
     }
-
-    // === ADMIN LOGIN CON CREDENZIALI ===
-    function adminLogin() {
-      const u = (document.getElementById('adminUser').value || '').trim();
-      const p = (document.getElementById('adminPass').value || '').trim();
-      const errEl = document.getElementById('adminLoginError');
-      // Credenziali admin: admin/lori123 oppure loriorl/lori123
-      if ((u === 'admin' || u === 'loriorl') && (p === 'lori123' || p === 'admin')) {
-        if (errEl) errEl.style.display = 'none';
-        userRole = 'admin';
-        activeUserName = u;
-        // Aggiorna UI welcome come utente approvato
-        const reqEl = document.getElementById('requestAccessContainer');
-        const subEl = document.getElementById('welcomeSubtext');
-        const enterCont = document.getElementById('enterContainer');
-        const nameEl = document.getElementById('welcomeUserName');
-        const imgEl = document.getElementById('welcomeUserImg');
-        const adminSec = document.getElementById('adminSystemSection');
-        if (reqEl) reqEl.style.display = 'none';
-        if (subEl) subEl.style.display = 'none';
-        if (nameEl) nameEl.textContent = u === 'loriorl' ? 'Lorenzo' : 'Admin';
-        if (imgEl) imgEl.src = 'https://raw.githubusercontent.com/loriorl13/fontana-audio/main/logo-loriorl-256.png';
-        if (enterCont) enterCont.style.display = 'flex';
-        if (adminSec) adminSec.style.display = '';
-        // Chiudi il pannello login
-        const panel = document.getElementById('adminLoginPanel');
-        if (panel) panel.style.display = 'none';
-        // Entra direttamente
-        setTimeout(() => enterSite(), 300);
-      } else {
-        if (errEl) { errEl.style.display = 'block'; setTimeout(() => errEl.style.display='none', 3000); }
-        const passEl = document.getElementById('adminPass');
-        if (passEl) { passEl.value = ''; passEl.focus(); }
-      }
-    }
-    // === FINE ADMIN LOGIN ===
 
     async function enterSite() {
       if (isTransitioning) return;
@@ -5256,7 +5258,7 @@ function startWebSocketSync() {
   }
 
   // Costruiamo l'URL WebSocket puntando alla porta 81
-  const wsUrl = `wss://fontana.fontanabyloriorl.it:81/`; // NOTA: WSS locale potrebbe non andare se Cloudflare non mappa la 81
+  const wsUrl = `ws://${window.location.hostname}:81/`;
   wsSync = new WebSocket(wsUrl);
 
   wsSync.onopen = () => {
@@ -5650,9 +5652,8 @@ function chiudiAutoScreen() {
    let homeAutoInterval = 15;
    let homeQuietStart = 22;
    let homeQuietEnd = 10;
-   let homeFontanaOpenTime  = 0;   // Minuti dalla mezzanotte: apertura (0=0 = always open until ESP32 responds)
-   let homeFontanaCloseTime = 0;   // Minuti dalla mezzanotte: chiusura (0=0 = always open until ESP32 responds)
-   let esp32ScheduleReceived = false; // Flag: true once we get real schedule from ESP32
+   let homeFontanaOpenTime  = 600;   // Minuti dalla mezzanotte: apertura (default 10:00)
+   let homeFontanaCloseTime = 1320;  // Minuti dalla mezzanotte: chiusura (default 22:00)
    let serverTimeOffset = 0;
     let nextShowNumber = -1;
     let homeNextShowIn = -1;
@@ -5921,8 +5922,8 @@ function chiudiAutoScreen() {
         if (data.nextShowNumber > 0) {
           setTimeout(() => backgroundPreloadShow(data.nextShowNumber), 1000);
         }
-        if (data.fontanaOpenTime  !== undefined) { homeFontanaOpenTime  = data.fontanaOpenTime;  esp32ScheduleReceived = true; }
-        if (data.fontanaCloseTime !== undefined) { homeFontanaCloseTime = data.fontanaCloseTime; esp32ScheduleReceived = true; }
+        if (data.fontanaOpenTime  !== undefined) homeFontanaOpenTime  = data.fontanaOpenTime;
+        if (data.fontanaCloseTime !== undefined) homeFontanaCloseTime = data.fontanaCloseTime;
 
         const updateExpBtn = (id, enabled) => {
             const btn = document.getElementById(id);
@@ -6098,8 +6099,6 @@ function chiudiAutoScreen() {
    }
 
    function isFontanaClosed() {
-     // Se non abbiamo ancora ricevuto l'orario dall'ESP32, considera la fontana sempre aperta
-     if (!esp32ScheduleReceived) return false;
      const cur  = currentTimeMinutes();
      const open  = homeFontanaOpenTime;
      const close = homeFontanaCloseTime;
@@ -7143,7 +7142,7 @@ async function processFaceRecognition(video) {
   } catch (e) { /* ignore */ }
 }
 
-function closeFacePopup() {
+function closeFacePopup_deprecated() {
   const el = document.getElementById('facePopup');
   if (el) el.style.display = 'none';
 }
@@ -8599,7 +8598,7 @@ function stopVoiceSearch() {
     return id;
   }
 
-  function openAccessRequest() {
+  function openAccessRequest_deprecated() {
     const modal = document.getElementById('accessRequestModal');
     if (!modal) { console.error('[ACCESS] Modal non trovato!'); return; }
 
@@ -8758,28 +8757,6 @@ function stopVoiceSearch() {
     const id = getDeviceId();
     const reqEl  = document.getElementById('requestAccessContainer');
     const subEl  = document.getElementById('welcomeSubtext');
-
-    // === MODALITÀ TEST LOCALE (file://) ===
-    // Quando aperto da file://, bypassa il check e accede come admin per il testing
-    if (window.location.protocol === 'file:') {
-      console.warn('[TEST MODE] Accesso locale rilevato: login automatico come admin');
-      userRole = 'admin';
-      activeUserName = 'Test Admin';
-      const enterCont = document.getElementById('enterContainer');
-      if (enterCont) {
-        const nameEl = document.getElementById('welcomeUserName');
-        const imgEl  = document.getElementById('welcomeUserImg');
-        if (nameEl) nameEl.textContent = '🧪 Test Admin';
-        if (imgEl)  imgEl.src = 'https://raw.githubusercontent.com/loriorl13/fontana-audio/main/logo-loriorl-256.png';
-        if (subEl)  subEl.style.display = 'none';
-        if (reqEl)  reqEl.style.display = 'none';
-        enterCont.style.display = 'flex';
-      }
-      const adminSec = document.getElementById('adminSystemSection');
-      if (adminSec) adminSec.style.display = '';
-      return; // non fare il fetch, siamo in test locale
-    }
-    // === FINE MODALITÀ TEST ===
 
     fetch(`/check-access?id=${encodeURIComponent(id)}`)
       .then(r => r.json())
@@ -9847,10 +9824,230 @@ function stopVoiceSearch() {
   });
   
   initKeyboard();
+  
+  // Hide virtual keyboard if physical keyboard is used
+  document.addEventListener('keydown', (e) => {
+    if (container.classList.contains('active')) {
+      // Ignore modifier keys
+      if (!['Shift', 'Alt', 'Control', 'Meta', 'Tab'].includes(e.key)) {
+        container.classList.remove('active');
+      }
+    }
+  });
 })();
 
 
 
 </script>
+
+<script>
+// === GESTIONE UNIFICATA DELLE SCHERMATE ED AUTO-LOGIN ===
+
+function triggerWaterSurge(callback) {
+  const transitionEl = document.getElementById('waterTransition');
+  if (transitionEl) {
+    transitionEl.classList.add('active');
+    setTimeout(() => {
+      if (typeof callback === 'function') callback();
+      setTimeout(() => {
+        transitionEl.classList.remove('active');
+      }, 400);
+    }, 900);
+  } else {
+    if (typeof callback === 'function') callback();
+  }
+}
+
+function showScreen(screen) {
+  const welcome = document.getElementById('welcome');
+  const panel = document.getElementById('panel');
+  if (screen === 'REGIA') {
+    if (welcome) {
+      welcome.classList.add('hidden-screen');
+    }
+    if (panel) {
+      panel.classList.add('active-screen');
+      panel.classList.add('active'); // Mantiene compatibilità col CSS originale
+      
+      // Ritardo breve per animare l'entrata degli show (come nel vecchio enterSite)
+      setTimeout(() => {
+        panel.classList.add('panel-visible');
+        const cards = document.querySelectorAll('.show-card');
+        cards.forEach((card, index) => {
+          card.style.transitionDelay = (index * 45) + 'ms';
+        });
+      }, 50);
+      
+      // Trigger effetto di benvenuto LED ESP32
+      try { fetch('/welcome-effect').catch(()=>{}); } catch(e) {}
+    }
+  } else {
+    if (panel) {
+      panel.classList.remove('active-screen');
+      panel.classList.remove('active');
+      panel.classList.remove('panel-visible');
+    }
+    if (welcome) {
+      welcome.classList.remove('hidden-screen');
+    }
+  }
+}
+
+function toggleAdminPanel() {
+  const p = document.getElementById('adminLoginPanel');
+  const main = document.getElementById('mainRegistrationCard');
+  const toggleTxt = document.getElementById('adminToggleText');
+  
+  if (p && main) {
+    if (p.style.display === 'none' || !p.style.display) {
+      p.style.display = 'flex';
+      main.style.display = 'none';
+      if (toggleTxt) toggleTxt.innerHTML = '● ● ● Richiedi Accesso';
+    } else {
+      p.style.display = 'none';
+      main.style.display = 'block';
+      if (toggleTxt) toggleTxt.innerHTML = '● ● ● Accesso Admin';
+    }
+  } else if (p) {
+    p.style.display = (p.style.display === 'none' || !p.style.display) ? 'flex' : 'none';
+  }
+}
+
+function adminLogin() {
+  const u = (document.getElementById('adminUser').value || '').trim();
+  const p = (document.getElementById('adminPass').value || '').trim();
+  const errEl = document.getElementById('adminLoginError');
+  if ((u === 'admin' || u === 'loriorl') && (p === 'lori123' || p === 'admin')) {
+    if (errEl) errEl.style.display = 'none';
+    window.userRole = 'admin';
+    window.activeUserName = (u === 'loriorl') ? 'Lorenzo' : 'Admin';
+    try {
+      localStorage.setItem('fontana_user_session', JSON.stringify({
+        approved: true,
+        name: window.activeUserName,
+        role: window.userRole,
+        timestamp: Date.now()
+      }));
+    } catch(e) {}
+    
+    // Esegui animazione zampilli ed entra IN REGIA
+    triggerWaterSurge(() => {
+      showScreen('REGIA');
+    });
+  } else {
+    if (errEl) { errEl.style.display = 'block'; setTimeout(() => errEl.style.display='none', 3000); }
+    const passEl = document.getElementById('adminPass');
+    if (passEl) { passEl.value = ''; passEl.focus(); }
+  }
+}
+
+function submitMainAccessRequest() {
+  const input = document.getElementById('mainAccessNameInput');
+  const statusEl = document.getElementById('mainRequestStatus');
+  const name = input ? input.value.trim() : '';
+  if (!name) {
+    if (input) { input.style.borderColor = '#ff5252'; setTimeout(() => input.style.borderColor = '', 1500); }
+    return;
+  }
+  
+  let devId = localStorage.getItem('fontana_device_id');
+  if (!devId) {
+    devId = 'dev-' + Math.random().toString(36).substr(2, 9) + '-' + Date.now();
+    localStorage.setItem('fontana_device_id', devId);
+  }
+  localStorage.setItem('device_id', devId);
+  
+  if (statusEl) {
+    statusEl.style.display = 'block';
+    statusEl.innerHTML = '⏳ Invio richiesta al server in corso…';
+  }
+  
+  fetch('/request-access?id=' + encodeURIComponent(devId) + '&name=' + encodeURIComponent(name))
+    .then(r => r.text())
+    .then(res => {
+      if (statusEl) {
+        statusEl.innerHTML = '✅ <strong>Richiesta inviata a Lorenzo!</strong><br><span style="font-size:0.8rem; opacity:0.85;">Attendi che il tuo dispositivo venga abilitato.</span>';
+      }
+      try {
+        localStorage.setItem('fontana_user_session', JSON.stringify({
+          approved: false,
+          pending: true,
+          name: name,
+          deviceId: devId
+        }));
+      } catch(e) {}
+    })
+    .catch(e => {
+      if (statusEl) {
+        statusEl.innerHTML = '✅ <strong>Richiesta inviata!</strong><br><span style="font-size:0.8rem; opacity:0.85;">Attendi abilitazione.</span>';
+      }
+    });
+}
+
+function logoutUserSession() {
+  try {
+    localStorage.removeItem('fontana_user_session');
+    localStorage.removeItem('access_approved');
+  } catch(e) {}
+  triggerWaterSurge(() => {
+    showScreen('WELCOME');
+    // Ripristina la visibilità del form di login che era stato nascosto in auto-login
+    const welcomeScreenForm = document.getElementById('welcomeScreen');
+    if (welcomeScreenForm) welcomeScreenForm.style.display = 'flex';
+    
+    const statusEl = document.getElementById('mainRequestStatus');
+    if (statusEl) statusEl.style.display = 'none';
+  });
+}
+
+// INIZIALIZZAZIONE ALL'APERTURA DELLA PAGINA
+window.addEventListener('DOMContentLoaded', () => {
+  let isApproved = false;
+  let savedName = 'Admin';
+  let savedRole = 'admin';
+  let isPending = false;
+
+  try {
+    const sessionStr = localStorage.getItem('fontana_user_session');
+    if (sessionStr) {
+      const sess = JSON.parse(sessionStr);
+      if (sess && sess.approved) {
+        isApproved = true;
+        savedName = sess.name || 'Admin';
+        savedRole = sess.role || 'admin';
+      } else if (sess && sess.pending) {
+        isPending = true;
+        savedName = sess.name;
+      }
+    }
+  } catch(e) {}
+
+  if (isApproved) {
+    window.userRole = savedRole;
+    window.activeUserName = savedName;
+    
+    // Hide the login form immediately so we just see the blue background
+    const welcomeScreenForm = document.getElementById('welcomeScreen');
+    if (welcomeScreenForm) welcomeScreenForm.style.display = 'none';
+    
+    // Wait a brief moment to allow the browser to paint, then trigger the animation
+    setTimeout(() => {
+      triggerWaterSurge(() => {
+        showScreen('REGIA');
+      });
+    }, 100);
+  } else {
+    showScreen('WELCOME');
+    if (isPending) {
+      const statusEl = document.getElementById('mainRequestStatus');
+      if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.innerHTML = '⏳ <strong>Richiesta precedentemente inviata per (' + savedName + ')</strong><br><span style="font-size:0.8rem; opacity:0.85;">In attesa di abilitazione da Lorenzo.</span>';
+      }
+    }
+  }
+});
+</script>
+
 </body>
 </html>
