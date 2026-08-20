@@ -8,21 +8,21 @@ const ESP_URL = 'https://fontana.fontanabyloriorl.it';
 
 // Intercetta tutte le chiamate fetch
 const originalFetch = window.fetch;
-window.fetch = function(url, options) {
-  if (typeof url === 'string' && url.startsWith('/')) {
-    url = ESP_URL + url;
+window.fetch = function(...args) {
+  if (typeof args[0] === 'string' && args[0].startsWith('/')) {
+    args[0] = ESP_URL + args[0];
   }
-  return originalFetch(url, options);
+  return originalFetch.apply(window, args);
 };
 
 // Intercetta EventSource se usato
 const originalEventSource = window.EventSource;
 if (originalEventSource) {
-  window.EventSource = function(url, options) {
-    if (typeof url === 'string' && url.startsWith('/')) {
-      url = ESP_URL + url;
+  window.EventSource = function(...args) {
+    if (typeof args[0] === 'string' && args[0].startsWith('/')) {
+      args[0] = ESP_URL + args[0];
     }
-    return new originalEventSource(url, options);
+    return new originalEventSource(...args);
   };
 }
 </script>
