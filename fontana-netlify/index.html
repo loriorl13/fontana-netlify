@@ -2,24 +2,28 @@
 <html lang="it">
 <head>
 <script>
-// === PONTE NETLIFY -> ESP32 & MOCK LOCALE ===
-let ESP_URL = 'https://fontana.fontanabyloriorl.it';
-if (window.location.protocol === 'file:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.startsWith('192.168.')) {
-  ESP_URL = 'http://192.168.1.164';
-}
+// === PONTE NETLIFY -> ESP32 ===
+// Da localhost/LAN: richieste reali dirette all'ESP32 (192.168.1.164)
+// Da Netlify: richieste tramite il dominio pubblico (fontana.fontanabyloriorl.it)
+const ESP_URL = 'https://fontana.fontanabyloriorl.it';
+const LOCAL_ESP_URL = 'http://192.168.1.164';
+
+const isLocal = window.location.protocol === 'file:' ||
+                window.location.hostname === 'localhost' ||
+                window.location.hostname === '127.0.0.1' ||
+                window.location.hostname.startsWith('192.168.');
+
+// URL effettivo da usare: LAN in locale, dominio pubblico da Netlify
+const ACTIVE_ESP_URL = isLocal ? LOCAL_ESP_URL : ESP_URL;
+
 window.serverTimeOffset = 0;
 window.esp32ScheduleReceived = false;
 
-// Intercetta e metti in CODA tutte le chiamate fetch per non ingolfare l'ESP32
 const originalFetch = window.fetch;
-let fetchQueue = Promise.resolve();
-
 window.fetch = function(...args) {
-  let url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : '');
-
+  // Reindirizza le chiamate relative all'URL corretto dell'ESP32
   if (typeof args[0] === 'string' && args[0].startsWith('/')) {
-    const sep = args[0].includes('?') ? '&' : '?';
-    args[0] = ESP_URL + args[0] + sep + '_t=' + Date.now();
+    args[0] = ACTIVE_ESP_URL + args[0];
   }
 
   const devId = localStorage.getItem('device_id');
@@ -33,13 +37,10 @@ window.fetch = function(...args) {
     }
   }
 
-  // Coda sequenziale: ogni fetch aspetta che il precedente abbia finito
-  const executeFetch = () => originalFetch.apply(window, args);
-  const myPromise = fetchQueue.then(() => executeFetch(), () => executeFetch());
-  fetchQueue = myPromise.catch(() => {});
-  return myPromise;
+  return originalFetch.apply(window, args);
 };
 </script>
+
 
 <link rel="icon" href="https://raw.githubusercontent.com/loriorl13/fontana-audio/main/favicon-loriorl.ico" type="image/x-icon">
 <link rel="icon" href="https://raw.githubusercontent.com/loriorl13/fontana-audio/main/logo-loriorl-256.png" type="image/png">
