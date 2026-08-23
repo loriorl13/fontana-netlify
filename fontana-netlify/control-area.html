@@ -4,15 +4,24 @@
 
 <script>
 // --- NETLIFY TO ESP32 BRIDGE ---
-const ESP_URL = 'https://fontana.fontanabyloriorl.it';
+let ESP_URL = 'https://fontana.fontanabyloriorl.it';
+if (window.location.protocol === 'file:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.startsWith('192.168.')) {
+  ESP_URL = 'http://192.168.1.164';
+}
 
-// Intercetta tutte le chiamate fetch
+// Intercetta e metti in CODA tutte le chiamate fetch per non ingolfare l'ESP32
 const originalFetch = window.fetch;
+let fetchQueue = Promise.resolve();
+
 window.fetch = function(...args) {
   if (typeof args[0] === 'string' && args[0].startsWith('/')) {
-    args[0] = ESP_URL + args[0];
+    const sep = args[0].includes('?') ? '&' : '?';
+    args[0] = ESP_URL + args[0] + sep + '_t=' + Date.now();
   }
-  return originalFetch.apply(window, args);
+  const executeFetch = () => originalFetch.apply(window, args);
+  const myPromise = fetchQueue.then(() => executeFetch(), () => executeFetch());
+  fetchQueue = myPromise.catch(() => {});
+  return myPromise;
 };
 
 // Intercetta EventSource se usato
@@ -254,7 +263,7 @@ main {
     <div id="clock">--:--:--</div>
     <div id="scheduleStatus">%SCHEDULE_STATUS%</div>
   </div>
-  <button class="btn" onclick="window.location.href='/'">🏠 Home</button>
+  <button class="btn" onclick="window.location.href='index.html?fast=1'">🏠 Home</button>
 </header>
 
 <main>
