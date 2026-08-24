@@ -6637,7 +6637,7 @@ function chiudiAutoScreen() {
      try {
        const controller = new AbortController();
        const tid = setTimeout(() => controller.abort(), 3000);
-       const r = await originalFetch(ACTIVE_ESP_URL + '/sync-status', { signal: controller.signal });
+       const r = await fetch('/sync-status', { signal: controller.signal });
        clearTimeout(tid);
        if (r.ok) {
          const wasOffline = !window._esp32Online;
