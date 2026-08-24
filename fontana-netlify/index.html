@@ -5234,186 +5234,219 @@ window.addEventListener('DOMContentLoaded', function() {
   document.addEventListener('touchstart', unlockAudio, { once: true });
 });
 
-// === SYNC POLLING LOGIC (HTTP) ===
 // === SYNC WEBSOCKET LOGIC ===
 let wsSync = null;
 let wsReconnectTimeout = null;
 let syncStatusIndicator = null;
 let lastPolledShow = 0;
-let localFinishedShowId = 0; // Tracks the show that was just finished or closed
-let lastActiveShowId = 0;    // Tracks the current show ID playing locally
-let lastLocalShowTrigger = 0;  // Timestamp of last local show trigger (requestShow)
-let isExecutingShow = false;   // Guard against overlapping executeShow calls
+let localFinishedShowId = 0;
+let lastActiveShowId = 0;
+let lastLocalShowTrigger = 0;
+let isExecutingShow = false;
+let _wsUrlIndex = 0; // Indice URL corrente per il fallback Netlify
 
 function startWebSocketSync() {
   if (!syncStatusIndicator) {
     syncStatusIndicator = document.createElement('div');
     syncStatusIndicator.id = 'wsStatusIndicator';
-    syncStatusIndicator.style.position = 'fixed';
-    syncStatusIndicator.style.bottom = '10px';
-    syncStatusIndicator.style.left = '10px';
-    syncStatusIndicator.style.width = '12px';
-    syncStatusIndicator.style.height = '12px';
-    syncStatusIndicator.style.borderRadius = '50%';
-    syncStatusIndicator.style.backgroundColor = 'orange'; // Starts orange (connecting)
-    syncStatusIndicator.style.zIndex = '999999';
-    syncStatusIndicator.style.opacity = '0.6';
-    syncStatusIndicator.style.boxShadow = '0 0 5px rgba(0,0,0,0.3)';
-    syncStatusIndicator.title = 'Connessione WebSocket in corso...';
+    syncStatusIndicator.style.cssText = 'position:fixed;bottom:10px;left:10px;width:12px;height:12px;border-radius:50%;background:orange;z-index:999999;opacity:0.6;box-shadow:0 0 5px rgba(0,0,0,0.3);transition:background 0.4s;';
+    syncStatusIndicator.title = 'Connessione in corso...';
     document.body.appendChild(syncStatusIndicator);
   }
 
-  let wsUrl = `ws://fontana.fontanabyloriorl.it:81/`;
-  if (window.location.protocol === 'file:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.startsWith('192.168.')) {
-    wsUrl = `ws://192.168.1.164:81/`;
-  }
+  // URL WebSocket: in locale diretto sull'ESP32, da Netlify via dominio pubblico
+  const wsUrlList = isLocal
+    ? ['ws://192.168.1.164:81/']
+    : ['wss://fontana.fontanabyloriorl.it/', 'ws://fontana.fontanabyloriorl.it:81/'];
+
+  const wsUrl = wsUrlList[_wsUrlIndex] || wsUrlList[0];
+  console.log('[WS] Connessione a:', wsUrl);
+
   wsSync = new WebSocket(wsUrl);
 
   wsSync.onopen = () => {
-    console.log("WebSocket Sync Connected");
+    _wsUrlIndex = 0;
+    console.log('[WS] Connesso:', wsUrl);
+    // Ricarica impostazioni ad ogni nuova connessione WS (es. dopo riavvio ESP32)
+    setTimeout(() => {
+      try { pollAutoSettings(); } catch(e) {}
+      try { if (typeof fetchWeatherData === 'function') fetchWeatherData(); } catch(e) {}
+    }, 500);
     if (syncStatusIndicator) {
       syncStatusIndicator.style.backgroundColor = '#00e676';
-      syncStatusIndicator.title = 'Sincronizzazione WS OK';
+      syncStatusIndicator.title = 'Sync WS OK — ' + wsUrl;
     }
   };
 
-  wsSync.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      let showNum = parseInt(data.show);
-      let elapsed = parseInt(data.elapsed) || 0;
-      
-      // Controllo Saluti Personalizzati / TTS remoto
-      if (data.speak !== undefined && data.speak !== "") {
-        console.log("WS Sync: ricevuto comando vocale remoto -> " + data.speak);
-        if (typeof _speakEvent === 'function') {
-          _speakEvent(data.speak);
-        } else if (typeof speakEventPhrase === 'function') {
-          speakEventPhrase(data.speak);
-        }
-      }
-      
-      // Aggiorna variabili vento in RAM
-      if (data.windSpeed !== undefined) {
-        window.currentWindSpeedVal = data.windSpeed;
-        window.currentWindValid = data.windValid;
-        window.currentWindThresholdVal = data.windThreshold;
-      }
+  wsSync.onmessage = handleSyncMessage;
 
-      if (data.volume !== undefined) {
-        let newVol = parseInt(data.volume);
-        if (newVol !== window.currentGlobalVolume) {
-          window.currentGlobalVolume = newVol;
-          applyGlobalVolume(newVol);
-          
-          let slider = document.getElementById('globalVolumeSlider');
-          if (slider && slider.value != newVol) {
-            slider.value = newVol;
-            let disp = document.getElementById('globalVolumeDisplay');
-            if (disp) disp.innerText = newVol + '%';
-          }
-          playVolumeBeep(newVol);
-        }
-      }
-
-      if (data.voiceVolume !== undefined) {
-        homeVoiceVolume = parseInt(data.voiceVolume);
-        if (homeVoiceVolume !== window.currentVoiceVolume) {
-          window.currentVoiceVolume = homeVoiceVolume;
-          let slider = document.getElementById('voiceVolumeSlider');
-          if (slider && slider.value != homeVoiceVolume) {
-            slider.value = homeVoiceVolume;
-            let disp = document.getElementById('voiceVolumeDisplay');
-            if (disp) disp.innerText = homeVoiceVolume + '%';
-          }
-        }
-      }
-
-      if (showNum > 0) {
-        if (showNum === localFinishedShowId) return;
-
-        // Se questo dispositivo ha già avviato lo show localmente da poco (< 3s), ignora il WS
-        if (showNum === lastActiveShowId && (Date.now() - lastLocalShowTrigger) < 3000) {
-          lastPolledShow = showNum;
-          return;
-        }
-
-        let audio = document.getElementById('audio' + showNum);
-        if (audio) {
-          if (audio.paused || Math.abs(audio.currentTime - (elapsed / 1000.0)) > 3.0) {
-            console.log("WS Sync: innesco show", showNum, "tempo", elapsed);
-            executeShow(showNum, elapsed);
-            lastActiveShowId = showNum;
-            
-            // Pre-carica il prossimo show in background su questo dispositivo
-            if (typeof nextShowNumber !== 'undefined' && nextShowNumber > 0 && nextShowNumber !== showNum) {
-              setTimeout(() => backgroundPreloadShow(nextShowNumber), 8000);
-            }
-          }
-        } else {
-           executeShow(showNum, elapsed);
-           lastActiveShowId = showNum;
-        }
-        lastPolledShow = showNum;
-      } else {
-        if (localFinishedShowId !== 0) {
-          localFinishedShowId = 0;
-        }
-        if (lastPolledShow > 0) {
-          console.log("WS Sync: rilevato stop show");
-          stopAllShows();
-        }
-        lastPolledShow = 0;
-        lastActiveShowId = 0;
-      }
-    } catch(e) {
-      console.warn("Errore parsing WS JSON", e);
+  wsSync.onerror = () => {
+    // Se fallisce il primo URL da Netlify, al prossimo tentativo prova il secondo
+    if (!isLocal && _wsUrlIndex < wsUrlList.length - 1) {
+      _wsUrlIndex++;
+      console.warn('[WS] Errore su', wsUrl, '— prossimo tentativo:', wsUrlList[_wsUrlIndex]);
     }
+    // Non chiamare close() qui: onerror è sempre seguito da onclose automaticamente
   };
 
   wsSync.onclose = () => {
-    console.warn("WebSocket Disconnected. Reconnecting in 2s...");
+    console.warn('[WS] Disconnesso da', wsUrl, '— riconnessione in 2s...');
     if (syncStatusIndicator) {
       syncStatusIndicator.style.backgroundColor = 'red';
-      syncStatusIndicator.title = 'Sincronizzazione offline. Riconnessione...';
+      syncStatusIndicator.title = 'Sync offline — Riconnessione...';
     }
     clearTimeout(wsReconnectTimeout);
     wsReconnectTimeout = setTimeout(startWebSocketSync, 2000);
   };
-  
-  wsSync.onerror = (err) => {
-    console.error("WebSocket Error:", err);
-    wsSync.close(); // Forza la chiusura per innescare onclose e la riconnessione
-  };
 }
 
-// Avvio logic di sincronizzazione WebSocket
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', startWebSocketSync);
-} else {
-    startWebSocketSync();
-}
 
-// === HTTP POLLING FALLBACK ===
-// Se Cloudflare o il browser bloccano le WebSocket su porta 81, ricadiamo su HTTP
-setInterval(async () => {
-  if (wsSync && wsSync.readyState === WebSocket.OPEN) return; // Se WS funziona, non fare nulla
+// Gestore centralizzato dei messaggi di sincronizzazione (WS + HTTP polling)
+function handleSyncMessage(event) {
   try {
+    const data = JSON.parse(typeof event === 'string' ? event : event.data);
+    const receiveTime = Date.now();
+
+    // 'hello' = primo messaggio dopo connessione/riavvio ESP32: ricarica tutto
+    if (data.hello) {
+      console.log('[Sync] ESP32 connesso/riavviato — aggiorno impostazioni...');
+      try { pollAutoSettings(); } catch(e) {}
+      try { if (typeof fetchWeatherData === 'function') fetchWeatherData(); } catch(e) {}
+      try { if (typeof refreshStats === 'function') refreshStats(); } catch(e) {}
+      // Nascondi banner offline se presente
+      if (typeof _hideEsp32OfflineBanner === 'function') _hideEsp32OfflineBanner();
+      window._esp32Online = true;
+    }
+
+    // Compensazione latenza tramite serverMs
+    let transitMs = 0;
+    if (data.serverMs !== undefined && window._espMsLastSync !== undefined) {
+      transitMs = Math.max(0, receiveTime - window._espMsReceiveTime - (data.serverMs - window._espMsLastSync));
+    }
+    window._espMsLastSync = data.serverMs;
+    window._espMsReceiveTime = receiveTime;
+
+    // TTS remoto
+    if (data.speak !== undefined && data.speak !== '') {
+      if (typeof _speakEvent === 'function') _speakEvent(data.speak);
+      else if (typeof speakEventPhrase === 'function') speakEventPhrase(data.speak);
+    }
+
+    // Vento
+    if (data.windSpeed !== undefined) {
+      window.currentWindSpeedVal = data.windSpeed;
+      window.currentWindValid = data.windValid;
+      window.currentWindThresholdVal = data.windThreshold;
+    }
+
+    // Volume globale
+    if (data.volume !== undefined) {
+      let newVol = parseInt(data.volume);
+      if (newVol !== window.currentGlobalVolume) {
+        window.currentGlobalVolume = newVol;
+        applyGlobalVolume(newVol);
+        let slider = document.getElementById('globalVolumeSlider');
+        if (slider && slider.value != newVol) {
+          slider.value = newVol;
+          let disp = document.getElementById('globalVolumeDisplay');
+          if (disp) disp.innerText = newVol + '%';
+        }
+        playVolumeBeep(newVol);
+      }
+    }
+
+    // Voice volume
+    if (data.voiceVolume !== undefined) {
+      homeVoiceVolume = parseInt(data.voiceVolume);
+      if (homeVoiceVolume !== window.currentVoiceVolume) {
+        window.currentVoiceVolume = homeVoiceVolume;
+        let slider = document.getElementById('voiceVolumeSlider');
+        if (slider && slider.value != homeVoiceVolume) {
+          slider.value = homeVoiceVolume;
+          let disp = document.getElementById('voiceVolumeDisplay');
+          if (disp) disp.innerText = homeVoiceVolume + '%';
+        }
+      }
+    }
+
+    // Manutenzione
+    if (data.maintenance !== undefined) {
+      const newMaint = !!data.maintenance;
+      if (newMaint !== isMaintenanceActive) {
+        isMaintenanceActive = newMaint;
+        updateMaintenanceUI();
+        if (typeof syncMaintenanceButtonUI === 'function') syncMaintenanceButtonUI();
+      }
+    }
+
+    let showNum = parseInt(data.show);
+    let elapsed = (parseInt(data.elapsed) || 0) + Math.round(transitMs);
+
+    if (showNum > 0) {
+      if (showNum === localFinishedShowId) return;
+      if (showNum === lastActiveShowId && (Date.now() - lastLocalShowTrigger) < 1500) {
+        lastPolledShow = showNum;
+        return;
+      }
+      let audio = document.getElementById('audio' + showNum);
+      if (audio) {
+        const drift = Math.abs(audio.currentTime * 1000 - elapsed);
+        if (audio.paused || drift > 2500) {
+          console.log(`[Sync] Innesco show ${showNum} elapsed=${elapsed}ms drift=${Math.round(drift)}ms`);
+          executeShow(showNum, elapsed);
+          lastActiveShowId = showNum;
+          if (typeof nextShowNumber !== 'undefined' && nextShowNumber > 0 && nextShowNumber !== showNum) {
+            setTimeout(() => backgroundPreloadShow(nextShowNumber), 8000);
+          }
+        } else if (drift > 800) {
+          console.log(`[Sync] Correzione soft drift=${Math.round(drift)}ms`);
+          audio.currentTime = elapsed / 1000;
+        }
+      } else {
+        executeShow(showNum, elapsed);
+        lastActiveShowId = showNum;
+      }
+      lastPolledShow = showNum;
+    } else {
+      if (localFinishedShowId !== 0) localFinishedShowId = 0;
+      if (lastPolledShow > 0) {
+        console.log('[Sync] Stop show rilevato');
+        stopAllShows();
+      }
+      lastPolledShow = 0;
+      lastActiveShowId = 0;
+    }
+  } catch(e) {
+    console.warn('[Sync] Errore parsing messaggio', e);
+  }
+}
+
+// Avvio
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', startWebSocketSync);
+} else {
+  startWebSocketSync();
+}
+
+// === HTTP POLLING FALLBACK (400ms, solo quando WS non connesso) ===
+setInterval(async () => {
+  // Non intervenire se WS è connesso (OPEN) O sta ancora connettendo (CONNECTING)
+  if (wsSync && (wsSync.readyState === WebSocket.OPEN || wsSync.readyState === WebSocket.CONNECTING)) return;
+  try {
+    const fetchStart = Date.now();
     const res = await fetch('/sync-status');
     if (res.ok) {
       const data = await res.json();
-      if (wsSync && wsSync.onmessage) {
-        if (syncStatusIndicator) {
-          syncStatusIndicator.style.backgroundColor = '#ffeb3b'; // Giallo per HTTP Fallback
-          syncStatusIndicator.title = 'Sincronizzazione HTTP (Fallback)';
-        }
-        wsSync.onmessage({ data: JSON.stringify(data) });
+      data._roundtrip = Date.now() - fetchStart;
+      if (syncStatusIndicator) {
+        syncStatusIndicator.style.backgroundColor = '#ffeb3b';
+        syncStatusIndicator.title = `Sync HTTP fallback (RTT: ${data._roundtrip}ms)`;
       }
+      handleSyncMessage(JSON.stringify(data));
     }
-  } catch(e) {
-    // Silenzioso in caso di errore, WebSocket proverà comunque a riconnettersi
-  }
-}, 1500);
+  } catch(e) { /* silenzioso */ }
+}, 400);
+
 
 // Funzione loopBackground rimossa per migliorare le performance
 const showInfo = {
@@ -6535,8 +6568,111 @@ function chiudiAutoScreen() {
    }
 
    setInterval(updateClock, 1000);
-   setInterval(pollAutoSettings, 3000); 
+   // === ESP32 HEALTH MONITOR ===
+   // Monitora la connessione all'ESP32 e ricarica tutto quando torna online
+   window._esp32Online = true;
+   window._esp32OfflineSince = null;
+   let _esp32HealthInterval = null;
+   let _esp32OfflineBanner = null;
+
+   function _showEsp32OfflineBanner() {
+     if (_esp32OfflineBanner) return;
+     _esp32OfflineBanner = document.createElement('div');
+     _esp32OfflineBanner.id = 'esp32OfflineBanner';
+     _esp32OfflineBanner.style.cssText = [
+       'position:fixed', 'top:0', 'left:0', 'right:0', 'z-index:9999999',
+       'background:linear-gradient(90deg,#c62828,#e53935)',
+       'color:white', 'font-family:sans-serif', 'font-size:0.85rem',
+       'font-weight:600', 'letter-spacing:0.5px',
+       'padding:10px 20px', 'display:flex', 'align-items:center',
+       'gap:10px', 'box-shadow:0 2px 12px rgba(0,0,0,0.4)',
+       'animation:esp32BannerIn 0.3s ease'
+     ].join(';');
+     _esp32OfflineBanner.innerHTML = `
+       <span style="font-size:1.2rem">⚠️</span>
+       <span id="esp32BannerText">ESP32 non raggiungibile — Riconnessione in corso...</span>
+       <span id="esp32BannerTimer" style="margin-left:auto;opacity:0.7;font-size:0.75rem"></span>
+     `;
+     // Aggiunge stile animazione se non esiste
+     if (!document.getElementById('esp32BannerStyle')) {
+       const s = document.createElement('style');
+       s.id = 'esp32BannerStyle';
+       s.textContent = '@keyframes esp32BannerIn{from{transform:translateY(-100%)}to{transform:translateY(0)}}';
+       document.head.appendChild(s);
+     }
+     document.body.appendChild(_esp32OfflineBanner);
+   }
+
+   function _hideEsp32OfflineBanner() {
+     if (_esp32OfflineBanner) {
+       _esp32OfflineBanner.remove();
+       _esp32OfflineBanner = null;
+     }
+   }
+
+   function _onEsp32CameOnline() {
+     console.log('[Health] ESP32 tornato online — ricarico impostazioni...');
+     window._esp32Online = true;
+     window._esp32OfflineSince = null;
+     _hideEsp32OfflineBanner();
+     // Ricarica tutte le impostazioni
+     try { pollAutoSettings(); } catch(e) {}
+     try { if (typeof fetchWeatherData === 'function') fetchWeatherData(); } catch(e) {}
+     try { if (typeof refreshStats === 'function') refreshStats(); } catch(e) {}
+     // Riconnetti il WebSocket
+     if (wsSync && wsSync.readyState !== WebSocket.OPEN) {
+       clearTimeout(wsReconnectTimeout);
+       startWebSocketSync();
+     }
+   }
+
+   function _onEsp32WentOffline() {
+     window._esp32Online = false;
+     window._esp32OfflineSince = window._esp32OfflineSince || Date.now();
+     _showEsp32OfflineBanner();
+     console.warn('[Health] ESP32 offline da', Math.round((Date.now() - window._esp32OfflineSince) / 1000), 's');
+   }
+
+   async function _esp32HealthCheck() {
+     try {
+       const controller = new AbortController();
+       const tid = setTimeout(() => controller.abort(), 3000);
+       const r = await originalFetch(ACTIVE_ESP_URL + '/sync-status', { signal: controller.signal });
+       clearTimeout(tid);
+       if (r.ok) {
+         const wasOffline = !window._esp32Online;
+         if (wasOffline) _onEsp32CameOnline();
+         else window._esp32Online = true;
+         // Aggiorna testo banner con RTT se visibile
+         if (_esp32OfflineBanner) _hideEsp32OfflineBanner();
+       } else {
+         _onEsp32WentOffline();
+       }
+     } catch(e) {
+       _onEsp32WentOffline();
+     }
+     // Aggiorna timer nel banner
+     if (_esp32OfflineBanner && window._esp32OfflineSince) {
+       const timerEl = document.getElementById('esp32BannerTimer');
+       if (timerEl) {
+         const secs = Math.round((Date.now() - window._esp32OfflineSince) / 1000);
+         timerEl.textContent = `Offline da ${secs}s`;
+       }
+     }
+   }
+
+   // Avvia health check ogni 4 secondi (non sovrappone con il pollAutoSettings da 3s)
+   _esp32HealthInterval = setInterval(_esp32HealthCheck, 4000);
+   _esp32HealthCheck(); // Primo check immediato
+
+   // pollAutoSettings originale con rilevazione offline integrata
+   function _pollAutoSettingsWithRetry() {
+     if (!window._esp32Online) return; // Non sprecare richieste se offline
+     pollAutoSettings();
+   }
+   setInterval(_pollAutoSettingsWithRetry, 3000);
    pollAutoSettings();
+
    updateClock();
 
   // === TUTORIAL LOGIC ===
